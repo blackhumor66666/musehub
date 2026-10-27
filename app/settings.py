@@ -183,7 +183,7 @@ Field("sync.dry_run", "sync", "试运行模式", "bool",
 Field("sync.delete_policy", "sync", "删除策略", "select",
       "never 永不删 / managed_only 只删本程序下载的(推荐) / mirror 严格镜像歌单",
       options=[("never", "never 永不删除"), ("managed_only", "managed_only 只删自己下载的"),
-               ("mirror", "mirror 严格镜像")])
+               ("mirror", "mirror 严格跟随（仍不动你原有的文件）")])
 Field("sync.push_unfavorite", "sync", "本地删文件后取消平台收藏", "bool",
       "开启后, 你删掉本地文件, 下一轮会自动去平台取消收藏。"
       "注意: 只是把文件挪到别的目录/改名不算删除(会自动跟随新位置), "

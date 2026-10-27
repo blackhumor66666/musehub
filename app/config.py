@@ -92,7 +92,7 @@ class SyncConfig:
     interval_minutes: int = 60
     # never: 永不删除本地文件
     # managed_only: 只删本程序下载的文件 (默认, 最安全)
-    # mirror: 严格镜像平台歌单 (会删本地文件, 不推荐首次使用)
+    # mirror: 严格跟随平台歌单 (仍不会删除非本程序下载的文件)
     delete_policy: str = "managed_only"
     dry_run: bool = True           # 首次运行默认只报告不执行
     download_concurrency: int = 2
