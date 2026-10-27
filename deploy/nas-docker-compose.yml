@@ -1,0 +1,43 @@
+services:
+  musehub:
+    build: /volume1/docker/compose/musehub
+    image: musehub:latest
+    container_name: musehub
+    restart: unless-stopped
+    ports:
+      - "8890:8080"
+    environment:
+      - TZ=Asia/Shanghai
+      - DATA_DIR=/data
+      - MUSIC_DIR=/music
+      # ===== 首次上线: 先试运行观察, Web 面板确认后改 false =====
+      - DRY_RUN=true
+      - DELETE_POLICY=managed_only
+      - SYNC_INTERVAL_MINUTES=60
+      - RECONCILE_INTERVAL_MINUTES=10
+      # ===== 平台凭据: 填好后 docker compose up -d 生效 =====
+      - NETEASE_COOKIE=${NETEASE_COOKIE}
+      - NETEASE_QUALITY=lossless,exhigh,higher,standard
+      - QQ_COOKIE=${QQ_COOKIE}
+      - QQ_UIN=${QQ_UIN}
+      - QQ_FAVORITE_DISSID=${QQ_FAVORITE_DISSID}
+      - QQ_QUALITY=f000,m800,m500
+      # ===== Navidrome(本机) =====
+      - NAVIDROME_URL=http://navidrome:4533
+      - NAVIDROME_USERNAME=${NAVIDROME_USERNAME}
+      - NAVIDROME_PASSWORD=${NAVIDROME_PASSWORD}
+      - NAVIDROME_PLAYLIST_PREFIX=
+      # ===== Telegram(可选) =====
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - ADMIN_USER_ID=${ADMIN_USER_ID}
+      - TELEGRAM_PROXY=${TELEGRAM_PROXY}
+      # ===== Web =====
+      - WEB_PASSWORD=${WEB_PASSWORD}
+    volumes:
+      - /volume1/docker/compose/musehub/data:/data
+      - /volume1/music:/music
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

@@ -1,0 +1,41 @@
+services:
+  musehub:
+    build: .
+    image: musehub:latest
+    container_name: musehub
+    restart: unless-stopped
+    ports:
+      - "8080:8080"          # Web 管理面板
+    env_file: .env
+    environment:
+      - TZ=Asia/Shanghai
+      # 容器内的固定路径, 覆盖 .env 里的相对路径
+      - DATA_DIR=/data
+      - MUSIC_DIR=/music
+    volumes:
+      - ./data:/data         # 数据库/日志/暂存
+      - ${MUSIC_DIR_HOST:-./music}:/music   # 音乐库(与 Navidrome 指向同一目录)
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u;u.urlopen('http://127.0.0.1:8080/healthz', timeout=5)"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+
+  # 如果你还没有 Navidrome, 取消下面注释一起起
+  # navidrome:
+  #   image: deluan/navidrome:latest
+  #   container_name: navidrome
+  #   restart: unless-stopped
+  #   ports:
+  #     - "4533:4533"
+  #   environment:
+  #     - ND_SCANSCHEDULE=1h
+  #     - ND_ENABLETRANSCODINGCONFIG=true
+  #   volumes:
+  #     - ./navidrome-data:/data
+  #     - ${MUSIC_DIR_HOST:-./music}:/music:ro

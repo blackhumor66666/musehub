@@ -1,0 +1,1882 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MuseHub · 本地音乐中枢</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ctext y='19' font-size='19'%3E%F0%9F%8E%A7%3C/text%3E%3C/svg%3E">
+<style>
+/* ============================================================
+   MuseHub · Editorial Press
+   定调：唱片封套 / 印刷品。暖纸底、墨黑字、单一朱红强调。
+   规则：hairline 分隔线、极小圆角、衬线大标题、等宽数字与路径。
+   ============================================================ */
+:root{
+  /* 表面与墨色 */
+  --paper:#f2ece1; --paper-2:#fbf7f0; --paper-3:#efe7d9;
+  --ink:#17140f; --ink-2:#4a423a; --muted:#877d6f;
+  --rule:rgba(23,20,15,.13); --rule-2:rgba(23,20,15,.07);
+  /* 强调色：印泥朱红，全站只此一个 */
+  --accent:#b23a1e; --accent-ink:#7d2712; --accent-soft:#f6e3dc;
+  /* 语义色 */
+  --ok:#2f6b4f; --ok-soft:#e6efe9; --bad:#a3271c; --bad-soft:#f7e2df;
+  --warn:#8f6208; --warn-soft:#f6ecd7; --purple:#5b4b8a; --purple-soft:#eae5f2;
+  /* 兼容旧变量名 */
+  --bg:var(--paper); --card:var(--paper-2); --line:var(--rule);
+  --text:var(--ink); --accent-deep:var(--accent-ink);
+  /* 字体 */
+  --serif:"Songti SC","Noto Serif SC","Source Han Serif SC",SimSun,"Times New Roman",serif;
+  --sans:"PingFang SC","HarmonyOS Sans SC",MiSans,"Microsoft YaHei",system-ui,sans-serif;
+  --mono:ui-monospace,"JetBrains Mono","Cascadia Mono",Consolas,monospace;
+  --radius:3px; --shadow:0 1px 0 rgba(23,20,15,.06);
+  --ease:cubic-bezier(.16,1,.3,1); --dur:.34s;
+  --sidebar-w:212px;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0; color:var(--ink); background:var(--paper);
+  font:14.5px/1.65 var(--sans); letter-spacing:.01em;
+  -webkit-font-smoothing:antialiased;
+}
+/* 氛围层：纸张颗粒 + 左上暖光，不抢内容 */
+body::before{
+  content:""; position:fixed; inset:0; pointer-events:none; z-index:0;
+  background:
+    radial-gradient(52rem 34rem at 6% -8%, rgba(178,58,30,.09), transparent 62%),
+    radial-gradient(40rem 30rem at 100% 0%, rgba(23,20,15,.05), transparent 60%);
+}
+body::after{
+  content:""; position:fixed; inset:0; pointer-events:none; z-index:0; opacity:.035;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  mix-blend-mode:multiply;
+}
+a{color:var(--accent-ink);text-decoration:none}
+a:hover{text-decoration:underline;text-underline-offset:3px}
+
+/* ---------- 控件 ---------- */
+button{
+  font:inherit; font-size:13px; cursor:pointer; color:var(--ink);
+  border:1px solid var(--rule); background:transparent;
+  padding:8px 14px; border-radius:var(--radius);
+  display:inline-flex; align-items:center; gap:6px; min-height:36px;
+  transition:background .16s ease-out,border-color .16s ease-out,color .16s ease-out,transform .12s;
+}
+button:hover{background:rgba(23,20,15,.045);border-color:rgba(23,20,15,.3)}
+button:active{transform:translateY(1px)}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fdf8f3}
+button.primary:hover{background:var(--accent-ink);border-color:var(--accent-ink)}
+button.danger{color:var(--bad);border-color:rgba(163,39,28,.3)}
+button.danger:hover{background:var(--bad-soft);border-color:var(--bad)}
+button.ghost{border-color:transparent;color:var(--muted)}
+button.ghost:hover{background:rgba(23,20,15,.05);color:var(--ink)}
+button:disabled{opacity:.42;cursor:not-allowed;transform:none}
+button.sm{padding:6px 11px;font-size:12.5px;min-height:32px}
+button.sm svg.i{width:13px;height:13px}
+.toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.toolbar button{white-space:nowrap;flex-shrink:0}
+.filters{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.filters button{padding:5px 11px;font-size:12.5px}
+.filters button.on{background:var(--ink);color:var(--paper-2);border-color:var(--ink)}
+
+input,select,textarea{
+  font:inherit; font-size:13.5px; color:var(--ink); background:var(--paper-2);
+  border:1px solid var(--rule); border-radius:var(--radius);
+  padding:9px 11px; transition:border-color .16s,box-shadow .16s;
+}
+input:hover,select:hover,textarea:hover{border-color:rgba(23,20,15,.28)}
+input:focus,select:focus,textarea:focus{
+  outline:none; border-color:var(--accent); box-shadow:0 0 0 3px rgba(178,58,30,.13);
+}
+input::placeholder,textarea::placeholder{color:#a8a094}
+svg.i{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.7;
+  stroke-linecap:round;stroke-linejoin:round;flex:0 0 auto}
+.mono{font-family:var(--mono);font-size:12px;letter-spacing:0}
+.num{font-variant-numeric:tabular-nums}
+.muted{color:var(--muted)}
+
+/* ---------- 布局 ---------- */
+.app{display:flex;min-height:100vh;position:relative;z-index:1}
+.sidebar{
+  width:var(--sidebar-w); flex:0 0 var(--sidebar-w); position:sticky; top:0; height:100vh;
+  display:flex; flex-direction:column; padding:22px 14px 16px; z-index:20;
+  background:linear-gradient(180deg,rgba(251,247,240,.9),rgba(242,236,225,.86));
+  border-right:1px solid var(--rule);
+}
+.brand{display:flex;align-items:center;gap:10px;padding:0 6px 18px;border-bottom:1px solid var(--rule);margin-bottom:6px}
+.logo{
+  width:34px;height:34px;border-radius:50%;flex:0 0 auto;
+  background:var(--ink); color:var(--paper); display:grid;place-items:center;
+  box-shadow:inset 0 0 0 4px rgba(251,247,240,.12), inset 0 0 0 5px rgba(251,247,240,.3);
+}
+.logo svg.i{width:16px;height:16px;stroke:var(--paper)}
+.brand b{display:block;font:600 15px/1.2 var(--serif);letter-spacing:.06em}
+.brand small{color:var(--muted);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase}
+.nav{flex:1;overflow-y:auto;padding-top:8px}
+.nav .cap{
+  color:var(--muted); font-size:10px; letter-spacing:.22em; text-transform:uppercase;
+  padding:16px 10px 7px; font-family:var(--mono);
+}
+.nav a{
+  display:flex;align-items:center;gap:10px;color:var(--ink-2);
+  padding:8px 10px;margin-bottom:1px;font-size:13.5px;border-radius:var(--radius);
+  border-left:2px solid transparent;position:relative;
+  transition:color .16s,background .16s,border-color .16s;
+}
+.nav a svg.i{color:var(--muted);transition:color .16s}
+.nav a:hover{background:rgba(23,20,15,.045);color:var(--ink);text-decoration:none}
+.nav a.on{background:transparent;color:var(--accent-ink);font-weight:600;border-left-color:var(--accent)}
+.nav a.on svg.i{color:var(--accent)}
+.side-foot{
+  border-top:1px solid var(--rule);padding:11px 6px 0;font-size:11.5px;color:var(--muted);
+  display:flex;align-items:center;gap:8px;font-family:var(--mono);
+}
+.dot{width:6px;height:6px;border-radius:50%;background:#c3b9aa;flex:0 0 auto}
+.dot.ok{background:var(--ok);box-shadow:0 0 0 3px rgba(47,107,79,.14)}
+.dot.bad{background:var(--bad);box-shadow:0 0 0 3px rgba(163,39,28,.14)}
+
+.main{flex:1;min-width:0;padding:34px 38px 80px}
+.wrap{max-width:1120px;margin:0 auto}
+.pagehead{
+  display:flex;align-items:flex-end;justify-content:space-between;gap:16px;
+  margin-bottom:26px;padding-bottom:16px;border-bottom:1px solid var(--rule);flex-wrap:wrap;
+}
+.pagehead h1{
+  font:600 30px/1.08 var(--serif); margin:0; letter-spacing:-.015em;
+}
+.pagehead .sub{color:var(--muted);font-size:12.5px;margin-top:7px;letter-spacing:.02em}
+.pagehead .acts{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+
+/* ---------- 卡片 ---------- */
+.card{
+  background:var(--paper-2); border:1px solid var(--rule); border-radius:var(--radius);
+  padding:20px 22px; margin-bottom:14px;
+  animation:rise .46s var(--ease) both;
+}
+.card:nth-of-type(2){animation-delay:.07s}
+.card:nth-of-type(3){animation-delay:.14s}
+.card:nth-of-type(4){animation-delay:.2s}
+@keyframes rise{from{opacity:0;transform:translateY(13px)}to{opacity:1;transform:none}}
+.grid{display:grid;gap:14px;margin-bottom:14px}
+.g4{grid-template-columns:repeat(4,1fr)}
+.g3{grid-template-columns:repeat(3,1fr)}
+.g2{grid-template-columns:1.3fr 1fr}
+@media(max-width:1000px){
+  .g4,.g3{grid-template-columns:repeat(2,1fr)} .g2{grid-template-columns:1fr}
+  .sidebar{display:none} .main{padding:24px 18px 70px}
+  .pagehead h1{font-size:24px}
+}
+.stat{position:relative;padding-top:22px;overflow:hidden}
+.stat::before{content:"";position:absolute;top:0;left:0;right:0;height:2px;background:var(--c,var(--accent))}
+.stat .row{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+.stat .k{color:var(--muted);font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;font-family:var(--mono)}
+.stat .v{font:600 34px/1.02 var(--serif);letter-spacing:-.02em;margin-top:8px;font-variant-numeric:tabular-nums}
+.stat .h{color:var(--muted);font-size:11.5px;margin-top:7px;line-height:1.5}
+.stat .bub{
+  width:30px;height:30px;border-radius:50%;background:transparent;
+  border:1px solid var(--rule);display:grid;place-items:center;color:var(--c,var(--muted));
+}
+.stat .bub svg.i{width:14px;height:14px}
+
+h2.ct{font:600 15.5px/1.3 var(--serif);margin:0;letter-spacing:.01em}
+.ct-sub{color:var(--muted);font-size:12px;margin-top:3px;margin-bottom:14px}
+.chd{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;
+  margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--rule-2);flex-wrap:wrap}
+.chd .more{font-size:12.5px}
+.chd-main{min-width:0;flex:1 1 240px}
+.chd-acts{display:flex;gap:8px;align-items:center;flex:0 0 auto;flex-wrap:wrap;justify-content:flex-end}
+.hd-tags{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:9px}
+
+/* 药丸标签：印刷标签感 */
+.pill{
+  display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--ink-2);
+  background:transparent;border:1px solid var(--rule);border-radius:2px;
+  padding:4px 9px;white-space:nowrap;font-family:var(--mono);letter-spacing:0;
+}
+.pill b{color:var(--ink);font-weight:600}
+.pill.warn{background:var(--warn-soft);border-color:rgba(143,98,8,.28);color:var(--warn)}
+.pill.warn b{color:var(--warn)}
+.pill.tight{padding:2px 7px;font-size:11px}
+
+/* 折叠说明 */
+.hint{margin:0 0 14px}
+.hint>summary{
+  cursor:pointer;list-style:none;display:inline-flex;align-items:center;gap:6px;
+  font-size:11.5px;color:var(--muted);padding:3px 0;user-select:none;
+  border-bottom:1px dashed var(--rule);font-family:var(--mono);
+}
+.hint>summary::-webkit-details-marker{display:none}
+.hint>summary:hover{color:var(--accent);border-bottom-color:var(--accent)}
+.hint>summary::before{content:"▸";font-size:11px;transition:transform .2s}
+.hint[open]>summary::before{transform:rotate(90deg)}
+.hint[open]>summary{color:var(--accent);margin-bottom:9px}
+.hint .hint-body{
+  background:var(--paper-3);border-left:2px solid var(--accent);
+  padding:12px 15px;font-size:12.5px;color:var(--ink-2);line-height:1.85;border-radius:0 2px 2px 0;
+}
+.hint .hint-body b{color:var(--ink);font-weight:600}
+.note{
+  background:var(--paper-3);border:1px solid var(--rule-2);border-left:2px solid var(--rule);
+  border-radius:2px;padding:10px 13px;font-size:12.5px;color:var(--ink-2);margin:2px 0 12px;line-height:1.75;
+}
+.toolink{color:var(--accent);cursor:pointer;border-bottom:1px solid rgba(178,58,30,.35)}
+.save-hint{font-size:12px;color:var(--muted);font-family:var(--mono)}
+
+/* 即时反馈条 */
+.flash{
+  display:none;align-items:flex-start;gap:9px;margin:0 0 13px;padding:10px 13px;
+  border-radius:2px;font-size:12.5px;line-height:1.6;border-left:2px solid var(--rule);
+  background:var(--paper-3);
+}
+.flash.show{display:flex;animation:rise .3s var(--ease) both}
+.flash.ok{background:var(--ok-soft);border-left-color:var(--ok);color:#20503a}
+.flash.bad{background:var(--bad-soft);border-left-color:var(--bad);color:#7d1f16}
+.flash.info{background:var(--paper-3);border-left-color:var(--ink);color:var(--ink-2)}
+.flash.busy{background:var(--paper-3);border-left-color:var(--accent);color:var(--ink-2)}
+.flash .f-ic{font-size:12px;line-height:1.5;font-family:var(--mono)}
+
+/* 重复组 */
+.dup-g{border:1px solid var(--rule-2);border-radius:2px;padding:12px 14px;margin-bottom:9px;background:var(--paper-2)}
+.dup-g:last-child{margin-bottom:0}
+.dup-gh{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap}
+.dup-gh .dup-t{min-width:0;flex:1 1 180px;font-size:13px;line-height:1.5}
+.dup-row{
+  display:flex;align-items:center;gap:7px;flex-wrap:wrap;font-size:11.5px;color:var(--muted);
+  padding-top:6px;margin-top:6px;border-top:1px dotted var(--rule);
+}
+.dup-row .p{
+  font-family:var(--mono);font-size:11px;white-space:nowrap;overflow:hidden;
+  text-overflow:ellipsis;flex:1 1 140px;min-width:0;
+}
+.spin{width:11px;height:11px;border:1.5px solid currentColor;border-right-color:transparent;
+  border-radius:50%;display:inline-block;animation:sp .7s linear infinite;flex:0 0 auto}
+@keyframes sp{to{transform:rotate(360deg)}}
+
+/* ---------- 表格 ---------- */
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{
+  text-align:left;color:var(--muted);font-weight:500;font-size:10.5px;
+  letter-spacing:.14em;text-transform:uppercase;font-family:var(--mono);
+  padding:0 12px 9px 0;border-bottom:1px solid var(--rule);white-space:nowrap;
+}
+td{padding:11px 12px 11px 0;border-bottom:1px solid var(--rule-2);vertical-align:middle}
+tbody tr{transition:background .14s}
+tbody tr:hover{background:rgba(23,20,15,.028)}
+tr:last-child td{border-bottom:none}
+.t-cover{width:34px;height:34px;border-radius:2px;object-fit:cover;background:var(--paper-3);flex:0 0 auto}
+.t-main{display:flex;align-items:center;gap:11px;min-width:0}
+.t-name{font-weight:600;line-height:1.35;overflow:hidden;text-overflow:ellipsis}
+.t-sub{color:var(--muted);font-size:11.5px;line-height:1.4;overflow:hidden;text-overflow:ellipsis;font-family:var(--mono)}
+.td-right{text-align:right;white-space:nowrap}
+.empty{color:var(--muted);font-size:12.5px;padding:26px 0;text-align:center;font-family:var(--mono)}
+.empty .e-ic{font-size:22px;display:block;margin-bottom:8px;opacity:.5}
+
+/* ---------- 徽章 ---------- */
+.badge{
+  display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:2px 7px;
+  border-radius:2px;background:var(--paper-3);color:var(--ink-2);
+  white-space:nowrap;font-family:var(--mono);border:1px solid var(--rule-2);
+}
+.badge.netease{background:#f8e6e3;color:#a3271c;border-color:rgba(163,39,28,.18)}
+.badge.qq{background:#e7f0ea;color:#2f6b4f;border-color:rgba(47,107,79,.18)}
+.badge.ok{background:var(--ok-soft);color:var(--ok);border-color:rgba(47,107,79,.18)}
+.badge.warn{background:var(--warn-soft);color:var(--warn);border-color:rgba(143,98,8,.2)}
+
+/* ---------- 进度/图表 ---------- */
+.bar,.live-bar{height:5px;background:var(--rule-2);border-radius:0;overflow:hidden;position:relative}
+.bar i,.live-bar i{display:block;height:100%;background:var(--ink);transition:width .5s var(--ease)}
+.live-row{display:flex;align-items:center;gap:10px;padding:7px 0;border-bottom:1px dotted var(--rule)}
+.live-row:last-child{border-bottom:none}
+.live-meta{font-family:var(--mono);font-size:11.5px;color:var(--muted);white-space:nowrap}
+.donut{position:relative;width:112px;height:112px;flex:0 0 auto}
+.donut-num{font:600 22px/1 var(--serif);font-variant-numeric:tabular-nums}
+.donut-sub{font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:.12em;text-transform:uppercase}
+.chart{position:relative;min-height:80px}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:var(--muted);font-family:var(--mono)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend i{width:8px;height:8px;border-radius:50%;display:inline-block}
+
+/* ---------- 表单块 ---------- */
+.row-form{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-bottom:12px}
+.row-form input{flex:1 1 300px;min-width:0}
+.fld{margin-bottom:14px}
+.fld label{display:block;font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--muted);font-family:var(--mono);margin-bottom:6px}
+.fld input,.fld select,.fld textarea{width:100%}
+.fh{font-size:11.5px;color:var(--muted);line-height:1.85}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--rule);margin-bottom:18px;flex-wrap:wrap}
+.tabs a,.tabs button{
+  padding:9px 14px;font-size:12.5px;color:var(--muted);background:transparent;
+  border:none;border-bottom:2px solid transparent;margin-bottom:-1px;border-radius:0;
+  font-family:var(--sans);letter-spacing:.02em;min-height:0;
+}
+.tabs a:hover,.tabs button:hover{color:var(--ink);background:rgba(23,20,15,.04);text-decoration:none}
+.tabs a.on,.tabs button.on{color:var(--accent-ink);border-bottom-color:var(--accent);font-weight:600;background:transparent}
+.switch{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;cursor:pointer;color:var(--ink-2)}
+.check{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;cursor:pointer}
+.step{display:flex;gap:9px;align-items:flex-start;padding:8px 0;font-size:12.5px}
+.testres{font-family:var(--mono);font-size:11.5px;color:var(--muted);line-height:1.8}
+.pagebar{display:flex;gap:8px;align-items:center;justify-content:flex-end;margin-top:12px;font-size:12px;color:var(--muted)}
+
+/* ---------- 设置分组 ---------- */
+.grp-card{border:1px solid var(--rule);border-radius:2px;background:var(--paper-2);margin-bottom:12px}
+.grp-head{display:flex;align-items:flex-start;gap:11px;padding:15px 18px;border-bottom:1px solid var(--rule-2)}
+.grp-ic{color:var(--accent);display:flex;padding-top:2px}
+.grp-head h2,.grp-head b{font:600 15px/1.35 var(--serif);margin:0}
+.grp-desc{font-size:11.5px;color:var(--muted);margin-top:3px;line-height:1.6}
+.grp-body{padding:18px}
+.grp-foot{padding:12px 16px;border-top:1px solid var(--rule-2);display:flex;justify-content:flex-end;gap:8px}
+
+/* ---------- 弹层 / 登录 / 提示 ---------- */
+.modal{position:fixed;inset:0;background:rgba(23,20,15,.42);display:none;align-items:center;
+  justify-content:center;z-index:90;padding:20px;backdrop-filter:blur(2px)}
+.modal.show{display:flex;animation:fade .22s ease-out both}
+@keyframes fade{from{opacity:0}to{opacity:1}}
+.modal .box{
+  background:var(--paper-2);border:1px solid var(--ink);border-radius:3px;
+  width:min(520px,100%);max-height:86vh;overflow:auto;box-shadow:0 24px 60px rgba(23,20,15,.28);
+  animation:rise .34s var(--ease) both;
+}
+.mh{display:flex;align-items:center;justify-content:space-between;padding:15px 18px;border-bottom:1px solid var(--rule)}
+.mh strong{font:600 15px/1.3 var(--serif)}
+.mb{padding:18px}
+.login{position:fixed;inset:0;background:var(--paper);display:none;place-items:center;z-index:100}
+.login.show{display:grid}
+.login .box{width:min(360px,92vw);text-align:center;padding:34px 28px;border:1px solid var(--rule);background:var(--paper-2)}
+.login h3{font:600 22px/1.2 var(--serif);margin:0 0 6px}
+.login p{color:var(--muted);font-size:12.5px;margin:0 0 18px;font-family:var(--mono)}
+.login input{width:100%;margin-bottom:11px;text-align:center}
+.login button{width:100%;justify-content:center}
+.err{color:var(--bad);font-size:12px;min-height:16px;margin-bottom:6px}
+.toast{
+  position:fixed;left:50%;bottom:34px;transform:translate(-50%,14px);
+  background:var(--ink);color:var(--paper);padding:10px 18px;border-radius:2px;font-size:12.5px;
+  opacity:0;pointer-events:none;transition:opacity .22s,transform .28s var(--ease);z-index:120;
+  max-width:80vw;text-align:center;letter-spacing:.02em;
+}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+.toast.bad{background:var(--bad)}
+
+/* ---------- 动效降级 ---------- */
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation:none!important;transition:none!important}
+}
+
+/* 打印式脚注 */
+.acts .sm{font-family:var(--sans)}
+
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="logo"><svg class="i" viewBox="0 0 24 24"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></div>
+      <div><b>MuseHub</b><small>本地音乐中枢</small></div>
+    </div>
+    <nav class="nav" id="nav"></nav>
+    <div class="side-foot"><span class="dot" id="footDot"></span><span id="footText">连接中…</span></div>
+  </aside>
+  <main class="main"><div class="wrap">
+    <div class="pagehead">
+      <div><h1 id="pageTitle">…</h1><div class="sub" id="pageSub"></div></div>
+      <div class="acts" id="pageActs"></div>
+    </div>
+    <div id="page"></div>
+  </div></main>
+</div>
+
+<div class="modal" id="modal"><div class="box">
+  <div class="mh"><strong id="modalTitle"></strong><button class="ghost" onclick="closeModal()">✕</button></div>
+  <div class="mb" id="modalBody"></div>
+</div></div>
+<div class="login" id="login">
+  <div class="box">
+    <h3>🎧 MuseHub</h3><p>请输入管理密码</p>
+    <div class="err" id="loginErr"></div>
+    <input type="password" id="loginPwd" placeholder="面板密码" autofocus>
+    <button class="primary" id="loginBtn">进入</button>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ================= 基础 ================= */
+const $ = (id) => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const ICONS = {
+  grid:'<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
+  cloud:'<path d="M18 10h-1.3A5 5 0 1 0 7 12H6a4 4 0 0 0 0 8h12a4 4 0 0 0 0-8z"/><path d="M12 12v6"/><path d="m9 15 3-3 3 3"/>',
+  list:'<path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/>',
+  rss:'<path d="M4 11a9 9 0 0 1 9 9"/><path d="M4 4a16 16 0 0 1 16 16"/><circle cx="5" cy="19" r="1"/>',
+  gear:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+  file:'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/>',
+  refresh:'<path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/>',
+  check:'<path d="M20 6 9 17l-5-5"/>',
+  disc:'<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/>',
+  db:'<ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/>',
+  plus:'<path d="M12 5v14M5 12h14"/>',
+  play:'<circle cx="12" cy="12" r="9"/><path d="m10 8.5 6 3.5-6 3.5z"/>',
+  send:'<path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/>',
+  bell:'<path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/>',
+  trash:'<path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/>',
+  search:'<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+  folder:'<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',
+  lock:'<rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
+};
+const icon = n => `<svg class="i" viewBox="0 0 24 24">${ICONS[n] || ICONS.grid}</svg>`;
+function toast(m){ const t=$('toast'); t.textContent=m; t.classList.add('show');
+  clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove('show'),2400); }
+function fmtSize(b){ if(!b) return '–'; const u=['B','KB','MB','GB']; let i=0,n=b;
+  while(n>=1024&&i<u.length-1){n/=1024;i++;} return n.toFixed(n>=100||!i?0:1)+' '+u[i]; }
+function fmtDur(s){ if(!s) return '–'; const m=Math.floor(s/60), ss=Math.round(s%60);
+  return s>=3600?`${Math.floor(m/60)}h${m%60}m`:m?`${m}m${ss}s`:`${ss}s`; }
+function ago(ts){ if(!ts) return '–';
+  const t=new Date(String(ts).replace(' ','T').replace(/(\+?\d{4})$/,'')); const d=(Date.now()-t.getTime())/1000;
+  if(isNaN(d)) return ts;
+  if(d<60) return `${d|0} 秒前`; if(d<3600) return `${(d/60)|0} 分钟前`;
+  if(d<86400) return `${(d/3600)|0} 小时前`; return `${(d/86400)|0} 天前`; }
+function pBadge(p){ return p==='netease'?'<span class="badge netease">网易云</span>'
+  :p==='qq'?'<span class="badge qq">QQ音乐</span>':`<span class="badge">${esc(p||'')}</span>`; }
+function statusBadge(s){ return {active:'<span class="badge ok">已入库</span>',
+  pending:'<span class="badge">待下载</span>', failed:'<span class="badge bad">失败</span>',
+  missing:'<span class="badge warn">本地缺失</span>', deleted:'<span class="badge">已移除</span>',
+  done:'<span class="badge ok">完成</span>', ok:'<span class="badge ok">完成</span>',
+  fail:'<span class="badge bad">失败</span>', queued:'<span class="badge">排队中</span>',
+  downloading:'<span class="badge warn">下载中</span>', tagging:'<span class="badge warn">写标签</span>'}[s]
+  || `<span class="badge">${esc(s)}</span>`; }
+function cover(url, cls='t-cover'){ return url
+  ? `<img class="${cls}" loading="lazy" src="/api/proxy/cover?url=${encodeURIComponent(url)}" onerror="this.style.visibility='hidden'">`
+  : `<div class="${cls}"></div>`; }
+async function api(path, opts){
+  const o = Object.assign({headers:{'Content-Type':'application/json'}}, opts);
+  const ctl = new AbortController();
+  o.signal = ctl.signal;
+  const timer = setTimeout(()=>ctl.abort(), 15000);   // 不让页面永远停在"加载中"
+  let res;
+  try{
+    res = await fetch(path, o);
+  }catch(e){
+    clearTimeout(timer);
+    throw new Error(e.name === 'AbortError' ? '请求超时（15 秒无响应）' : ('网络错误：' + e.message));
+  }
+  clearTimeout(timer);
+  if(res.status === 401){ showLogin(); throw new Error('需要登录'); }
+  if(!res.ok){ let m=res.status; try{const j=await res.json(); m=j.error||j.detail||m;}catch(e){} throw new Error(m); }
+  return res.json();
+}
+function openModal(title, html){ $('modalTitle').textContent=title; $('modalBody').innerHTML=html;
+  $('modal').classList.add('open'); }
+function closeModal(){ $('modal').classList.remove('open'); }
+/* 页面内确认框(替代浏览器原生 confirm): 用法 await askConfirm(标题, 内容, {okText, danger}) */
+function askConfirm(title, html, opts){
+  const o = opts || {};
+  return new Promise(resolve => {
+    openModal(title, `
+      <div style="font-size:13.5px;line-height:1.85;color:var(--ink-2)">${html}</div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:20px">
+        <button id="cfCancel">取消</button>
+        <button id="cfOk" class="${o.danger ? 'danger' : 'primary'}">${esc(o.okText || '确定')}</button>
+      </div>`);
+    $('cfOk').onclick = () => { closeModal(); resolve(true); };
+    $('cfCancel').onclick = () => { closeModal(); resolve(false); };
+  });
+}
+$('modal').addEventListener('click', e => { if(e.target.id==='modal') closeModal(); });
+document.addEventListener('keydown', e => { if(e.key==='Escape') closeModal(); });
+function showLogin(){ $('login').style.display='grid'; setTimeout(()=>{try{$('loginPwd').focus();}catch(e){}},50); }
+$('loginBtn').onclick = async () => {
+  $('loginErr').textContent='';
+  try{ const r=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({password:$('loginPwd').value})});
+    if(r.ok){ $('login').style.display='none'; render(); }
+    else $('loginErr').textContent='密码不对，再试试';
+  }catch(e){ $('loginErr').textContent='请求失败: '+e.message; }
+};
+$('loginPwd').addEventListener('keydown', e => { if(e.key==='Enter') $('loginBtn').click(); });
+
+/* ================= 图表(纯 SVG) ================= */
+function donut(data, num, sub){
+  const total = data.reduce((a,d)=>a+d.value,0);
+  if(!total) return `<div class="empty"><span class="e-ic">◌</span>暂无数据</div>`;
+  const R=62, C=2*Math.PI*R; let off=0;
+  const segs = data.filter(d=>d.value>0).map(d=>{
+    const len=d.value/total*C;
+    const s=`<circle r="${R}" cx="90" cy="90" fill="none" stroke="${d.color}" stroke-width="24"
+      stroke-dasharray="${Math.max(len-2,0.5)} ${C-Math.max(len-2,0.5)}" stroke-dashoffset="${-off}"
+      transform="rotate(-90 90 90)" stroke-linecap="round"/>`;
+    off+=len; return s;
+  }).join('');
+  return `<svg class="donut" viewBox="0 0 180 180">${segs}
+    <text x="90" y="88" text-anchor="middle" class="donut-num">${esc(num)}</text>
+    <text x="90" y="106" text-anchor="middle" class="donut-sub">${esc(sub)}</text></svg>
+    <div class="legend">${data.map(d=>`<span><i style="background:${d.color}"></i>${esc(d.label)} ${d.value}</span>`).join('')}</div>`;
+}
+function lineChart(labels, series){
+  const W=600,H=190,P=30;
+  const max = Math.max(1, ...series.flatMap(s=>s.points));
+  const x = i => P + i*(W-2*P)/Math.max(1,labels.length-1);
+  const y = v => H-P - v*(H-2*P)/max;
+  const grid = [0,.5,1].map(f=>{
+    const yy = y(max*f);
+    return `<line x1="${P}" y1="${yy}" x2="${W-P}" y2="${yy}" stroke="#e2d8c7"/>
+      <text x="${P-6}" y="${yy+3}" text-anchor="end" font-size="9" fill="#a8a094">${Math.round(max*f)}</text>`;
+  }).join('');
+  const lines = series.map(s=>{
+    const pts = s.points.map((v,i)=>`${x(i)},${y(v)}`).join(' ');
+    const dots = s.points.map((v,i)=>`<circle cx="${x(i)}" cy="${y(v)}" r="3" fill="var(--paper-2)" stroke="${s.color}" stroke-width="2"/>`).join('');
+    return `<polyline points="${pts}" fill="none" stroke="${s.color}" stroke-width="2.2" stroke-linejoin="round"/>${dots}`;
+  }).join('');
+  const xl = labels.map((l,i)=>`<text x="${x(i)}" y="${H-P+14}" text-anchor="middle" font-size="9.5" fill="#a8a094">${esc(l)}</text>`).join('');
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}">${grid}${lines}${xl}</svg>
+    <div class="legend">${series.map(s=>`<span><i style="background:${s.color}"></i>${esc(s.label)}</span>`).join('')}</div>`;
+}
+const QNAME = {jymaster:'超清母带 Master',sky:'沉浸环绕声',jyeffect:'高清臻音',hires:'Hi-Res 无损',
+  lossless:'无损 SQ',exhigh:'极高 320k',higher:'较高 192k',standard:'标准 128k',
+  rs01:'臻品母带 Hi-Res',q000:'臻品母带 2.0',sb00:'臻品母带 4.0',ai00:'臻品全景声 Dolby',
+  f000:'无损 SQ FLAC',a000:'无损 APE',m800:'HQ 高品质 320k',c400:'标准 M4A',m500:'标准 128k',
+  local:'原有/导入文件'};
+function qname(c){ return QNAME[c] || c || ''; }
+function hBar(pct){
+  const v = Math.max(0, Math.min(100, pct||0));
+  return `<div class="bar ${v>=99?'ok':''}" style="min-width:86px"><i style="width:${v}%"></i></div>`;
+}
+
+/* ================= 路由 ================= */
+const NAV = [
+  {cap:'主菜单'},
+  {id:'dashboard', ic:'grid', t:'仪表盘'},
+  {id:'downloads', ic:'cloud', t:'下载任务'},
+  {id:'playlists', ic:'list', t:'歌单同步'},
+  {id:'subscriptions', ic:'rss', t:'歌单订阅'},
+  {id:'library', ic:'disc', t:'曲库统计'},
+  {id:'repair', ic:'check', t:'库体检'},
+  {cap:'系统'},
+  {id:'logs', ic:'file', t:'运行日志'},
+  {id:'settings', ic:'gear', t:'系统设置'},
+];
+$('nav').innerHTML = NAV.map(n => n.cap ? `<div class="cap">${n.cap}</div>`
+  : `<a href="#/${n.id}" data-id="${n.id}">${icon(n.ic)}<span>${n.t}</span></a>`).join('');
+const PAGES = {};
+const state = { dl:{provider:'',status:'',page:1}, log:{level:'',source:'',q:'',page:1} };
+function curRoute(){ const h=location.hash.replace(/^#\//,''); return PAGES[h]?h:'dashboard'; }
+let pollTimer = null;
+function clearPoll(){ if(pollTimer){ clearInterval(pollTimer); pollTimer=null; } }
+function setActs(html){ $('pageActs').innerHTML = html || ''; }
+function render(){
+  clearPoll();
+  const r = curRoute();
+  document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('on', a.dataset.id === r));
+  const p = PAGES[r];
+  $('pageTitle').textContent = p.title; $('pageSub').textContent = p.sub || '';
+  $('page').innerHTML = '<div class="empty">加载中…</div>';
+  setActs(''); p.render().catch(e => {
+    if(String(e.message).includes('需要登录')){
+      $('page').innerHTML = '<div class="empty">请先在上方输入面板密码登录</div>';
+      return;
+    }
+    $('page').innerHTML = `<div class="empty">加载失败: ${esc(e.message)}</div>`;
+  });
+}
+window.addEventListener('hashchange', render);
+window.addEventListener('DOMContentLoaded', render);
+
+/* ================= 页面: 仪表盘 ================= */
+PAGES.dashboard = { title:'仪表盘', sub:'系统总览：曲库、同步与下载', async render(){
+  const d = await api('/api/dashboard');
+  const s = d.stats, st = d.tracks_by_status, ds = d.download_summary;
+  const lib = d.library || {};
+  const cnt = k => (st.find(x=>x.status===k)||{}).count || 0;
+  const total = st.reduce((a,x)=>a+x.count,0);
+  const dry = d.checklist.dry_run;
+
+  const ck = d.checklist;
+  const cookies = d.cookie_health || {};
+  const platLabel = k => {
+    const [p, acc] = String(k).split(':');
+    return (p === 'netease' ? '网易云' : 'QQ音乐') + (acc && acc !== '默认' ? '·' + acc : '');
+  };
+  const badCookies = Object.entries(cookies).filter(([,v]) => v && v.ok === false);
+  const cookieBanner = badCookies.length ? `
+    <div class="card" style="border-color:rgba(163,39,28,.28);background:var(--bad-soft);margin-bottom:14px">
+      <div style="display:flex;gap:12px;align-items:flex-start">
+        <div style="font-size:18px;line-height:1.3">⚠️</div>
+        <div style="flex:1;min-width:0">
+          <b style="color:var(--bad)">登录态失效，相关同步会失败</b>
+          <div style="font-size:12.5px;color:#7d1f16;margin-top:5px;line-height:1.7">
+            ${badCookies.map(([k,v])=>`${platLabel(k)}：${esc(v.message||'Cookie 已失效')}`
+              + `（检测于 ${ago(v.checked_at)}）`).join('<br>')}
+          </div>
+          <div style="margin-top:8px;font-size:12.5px">
+            <a href="#/settings">去设置重新粘贴 Cookie →</a>
+          </div>
+        </div>
+        <button class="sm" id="ckRecheck">重新检测</button>
+      </div>
+    </div>` : '';
+  const steps = [
+    {ok: ck.netease_cookie, t:'网易云 Cookie', d:'下载网易云歌单必需',
+      a: ck.netease_cookie?'':`<a href="#/settings">去设置 →</a>`},
+    {ok: ck.qq_cookie, t:'QQ 音乐 Cookie', d:'下载 QQ 歌单 / 双向收藏',
+      a: ck.qq_cookie?'':`<a href="#/settings">去设置 →</a>`},
+    {ok: ck.any_playlist, t:'订阅歌单', d:'粘贴歌单链接即可',
+      a: ck.any_playlist?`<a href="#/subscriptions">管理 →</a>`:`<a href="#/subscriptions">去订阅 →</a>`},
+  ];
+
+  $('page').innerHTML = `
+    ${cookieBanner}
+    ${dry ? `<div class="card" style="border-color:#f0dcb4;background:#fdf9ef;margin-bottom:14px">
+      <div class="check">${steps.map(s2=>`
+        <div class="step"><b><span class="${s2.ok?'done':'todo'}">${s2.ok?'✔':'○'}</span>${esc(s2.t)}</b>
+          <p>${esc(s2.d)}</p>${s2.a}</div>`).join('')}
+      <div class="step" style="flex:0 0 230px;background:#fdf7ec;border-color:#f0dcb4">
+        <b>🧪 试运行中</b><p>只观察不执行：不下载、不删除、不回推收藏。日志会给「将要做的事」清单。</p>
+        <a href="javascript:toggleDry()">切到实盘 →</a></div>
+    </div></div>` : ''}
+
+    <div class="card" style="margin-bottom:16px">
+      <div class="chd"><div><h2 class="ct">搜歌下载</h2>
+        <div class="ct-sub" style="margin-bottom:0">不用去 App 点收藏，搜到直接下进曲库</div></div></div>
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <input id="qInput" placeholder="输入 歌名 歌手，回车搜索" style="flex:1"
+          autocomplete="off">
+        <button class="primary" id="qGo">${icon('search')}搜索</button>
+      </div>
+      <div id="qBody"></div>
+    </div>
+
+    <div class="grid g4">
+      ${[['媒体库曲目', lib.files ?? s.tracks_active, `${fmtSize(lib.total_bytes)} · ${fmtDur(lib.total_seconds)}`, 'db','var(--accent)','var(--accent-soft)'],
+         ['订阅歌单', s.playlists, `待下载 ${cnt('pending')}`, 'list','var(--ink)','transparent'],
+         ['今日下载', ds.ok_today, `失败 ${ds.fail_today}`, 'cloud','var(--ink)','transparent'],
+         ['待回推动作', s.actions_pending, `${s.actions_failed} 个失败待处理`, 'refresh','var(--ink)','transparent']]
+        .map(([k,v,h,ic,c,cs])=>`
+      <div class="card stat" style="--c:${c};--c-soft:${cs}">
+        <div class="row"><div><div class="k">${k}</div><div class="v num">${v}</div><div class="h">${h}</div></div>
+        <div class="bub">${icon(ic)}</div></div></div>`).join('')}
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <div class="chd"><div><h2 class="ct">平台账号</h2><div class="ct-sub">登录与会员状态（会员决定 VIP 曲目能否下载）</div></div>
+        <a class="more" href="#/settings">去设置 →</a></div>
+      <div style="display:flex;gap:12px;flex-wrap:wrap">
+        ${Object.entries(d.providers||{}).map(([name,status])=>{
+          const parts = name.split(':'); const plat = parts[0]; const acc = parts[1] || '';
+          const label = (plat==='netease'?'网易云':'QQ音乐') + (acc && acc!=='默认' ? '·'+acc : '');
+          const vip = String(d.vip?.[name] || '检测中…');
+          // 会员状态可能是一整句说明(如 Cookie 失效), 短标签只放结论, 长文另起一行
+          const short = vip.length <= 12 ? vip
+            : vip.startsWith('Cookie') ? 'Cookie 需更新'
+            : vip.startsWith('会员可用') ? '会员可用'
+            : vip.startsWith('未能验证') ? '未能验证'
+            : vip.slice(0, 10) + '…';
+          const tone = (vip.includes('失效') || vip.includes('未能')) ? 'warn'
+            : vip.includes('无') ? 'warn' : 'ok';
+          const detail = vip.length > 12 ? vip : '';
+          return `<div style="flex:1;min-width:260px;background:var(--paper-3);border:1px solid var(--rule-2);border-radius:2px;padding:13px 15px">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+              <b style="font-size:13.5px;font-family:var(--serif)">${esc(label)}</b>
+              <span class="badge ${tone}" title="${esc(vip)}">${esc(short)}</span>
+            </div>
+            <div class="muted" style="font-size:11.5px;margin-top:6px;font-family:var(--mono)">${esc(status)}</div>
+            ${detail?`<div style="font-size:11.5px;color:var(--ink-2);margin-top:6px;line-height:1.65">${esc(detail)}</div>`:''}
+          </div>`;}).join('')}
+      </div>
+    </div>
+
+    <div class="grid g2">
+      <div class="card">
+        <div class="chd"><div><h2 class="ct">曲库文件</h2>
+          <div class="ct-sub">按真实文件统计：同一首歌被多个平台/歌单收藏只算一个文件；
+          待下载与失败数见「订阅歌单」卡片和「下载任务」页</div></div></div>
+        ${donut([
+          {label:'已入库', value:lib.files, color:'#17140f'},
+          {label:'本地缺失', value:lib.missing_files||0, color:'#f59e0b'},
+        ], String(lib.files), '个文件')}
+      </div>
+      <div class="card">
+        <div class="chd"><div><h2 class="ct">近 7 天下载</h2><div class="ct-sub">成功 / 失败</div></div>
+          <span class="more muted">成功率 ${ds.rate==null?'–':ds.rate+'%'}</span></div>
+        ${lineChart(ds.trend.map(t=>t.day), [
+          {label:'成功', color:'#17140f', points:ds.trend.map(t=>t.ok)},
+          {label:'失败', color:'#b23a1e', points:ds.trend.map(t=>t.fail)}])}
+      </div>
+    </div>
+
+    <div class="grid g2" style="margin-top:0">
+      <div class="card">
+        <div class="chd"><div><h2 class="ct">最近同步</h2><div class="ct-sub">按歌单的下载进度</div></div>
+          <a class="more" href="#/playlists">查看全部 →</a></div>
+        ${d.recent_syncs.length ? `<table><thead><tr><th>歌单</th><th>进度</th><th style="width:90px">同步时间</th></tr></thead>
+          <tbody>${d.recent_syncs.map(p=>`
+            <tr><td><div class="t-main">${cover(p.cover)}
+              <div><div class="t-name">${esc(p.name)}</div>
+              <div class="t-sub">${pBadge(p.provider)} ${p.error?`<span class="badge bad">出错</span>`:''}</div></div></div></td>
+            <td><div style="display:flex;gap:8px;align-items:center">${hBar(p.rate)}
+              <span class="num muted" style="font-size:12px">${p.downloaded}/${p.total}</span></div></td>
+            <td class="muted" style="font-size:12px">${ago(p.synced_at)}</td></tr>`).join('')}
+          </tbody></table>` : '<div class="empty"><span class="e-ic">≡</span>还没有订阅歌单</div>'}
+      </div>
+      <div class="card">
+        <div class="chd"><div><h2 class="ct">最近入库</h2><div class="ct-sub">最新下载的音乐文件</div></div>
+          <a class="more" href="#/downloads">全部 →</a></div>
+        ${d.recent_uploads.length ? `<table><tbody>${d.recent_uploads.map(t=>`
+          <tr><td><div class="t-main"><div><div class="t-name">${esc(t.title)}</div>
+            <div class="t-sub">${esc(t.artists)}</div></div></div></td>
+          <td>${pBadge(t.provider)}</td>
+          <td>${t.quality?`<span class="badge quality">${esc(qname(t.quality))}</span>`:''}</td>
+          <td class="muted" style="font-size:12px">${ago(t.updated_at)}</td></tr>`).join('')}
+          </tbody></table>` : '<div class="empty"><span class="e-ic">♪</span>还没有下载记录</div>'}
+      </div>
+    </div>`;
+
+  /* ---- 搜歌下载 ---- */
+  const doSearch = async () => {
+    const q = $('qInput').value.trim();
+    if(!q) return;
+    const box = $('qBody');
+    box.innerHTML = '<div class="empty"><span class="spin"></span> 正在搜索网易云 / QQ 音乐…</div>';
+    try{
+      const d = await api(`/api/search?q=${encodeURIComponent(q)}`);
+      const rs = d.results || [];
+      const errs = Object.entries(d.errors || {});
+      if(!rs.length){
+        box.innerHTML = `<div class="empty">没找到「${esc(q)}」</div>`
+          + (errs.length ? `<div class="muted" style="font-size:12px;text-align:center;padding-bottom:10px">
+              ${errs.map(([k,v])=>`${esc(k)}：${esc(v)}`).join('<br>')}</div>` : '');
+        return;
+      }
+      box.innerHTML = rs.map((t,i)=>`
+        <div style="display:flex;align-items:center;gap:10px;padding:9px 0;flex-wrap:wrap;
+          ${i?'border-top:1px dashed #eef0f4;':''}">
+          ${pBadge(t.provider)}
+          <span style="flex:1;min-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+            <b>${esc(t.title)}</b> <span class="muted">— ${esc(t.artists)}</span>
+            ${t.album?`<span class="muted">·《${esc(t.album)}》</span>`:''}</span>
+          <span class="num muted" style="font-size:12px">${fmtDur(t.duration)}</span>
+          <button class="sm primary" data-sdl="${i}">${icon('plus')}下载</button>
+        </div>`).join('');
+      box.querySelectorAll('[data-sdl]').forEach(btn => btn.onclick = async () => {
+        const t = rs[+btn.dataset.sdl];
+        const done = busyBtn(btn, '处理中…');
+        try{
+          await api('/api/search/download', {method:'POST', body: JSON.stringify(t)});
+          toast(`已开始下载：${t.title}，完成后 TG 会收到通知`);
+          btn.textContent = '已加入'; btn.disabled = true;
+        }catch(e){ toast('失败: ' + e.message); done(); }
+      });
+    }catch(e){ box.innerHTML = `<div class="empty">搜索失败: ${esc(e.message)}</div>`; }
+  };
+  $('qGo').onclick = doSearch;
+  $('qInput').onkeydown = e => { if(e.key === 'Enter') doSearch(); };
+  const ckBtn = $('ckRecheck');
+  if(ckBtn) ckBtn.onclick = async () => {
+    const done = busyBtn(ckBtn, '检测中…');
+    try{
+      const r = await api('/api/cookies/check', {method:'POST'});
+      const bad = Object.entries(r.health || {}).filter(([,v]) => v && v.ok === false);
+      toast(bad.length ? `${bad.length} 个平台登录已失效` : '登录态正常');
+      render();
+    }catch(e){ toast('检测失败: ' + e.message); done(); }
+  };
+}};
+
+async function toggleDry(){
+  if(!await askConfirm('切换到实盘？',
+    '切到实盘后，会<b>真实下载文件</b>、并按删除策略清理本地文件。确定继续吗？',
+    {okText:'切到实盘', danger:true})) return;
+  await api('/api/mode', {method:'POST', body: JSON.stringify({dry_run:false})});
+  toast('已切到实盘'); render();
+}
+window.toggleDry = toggleDry;
+
+/* ================= 页面: 下载任务 ================= */
+PAGES.downloads = { title:'下载任务', sub:'实时队列、统计趋势与下载记录', async render(){
+  setActs(`<button id="dRetry" class="danger">${icon('refresh')}重试全部失败</button>`);
+  $('dRetry').onclick = async () => {
+    if(!await askConfirm('重试全部失败曲目？', '把所有失败曲目重置为待下载并立即同步。',
+      {okText:'重试'})) return;
+    const r = await api('/api/downloads/retry-failed', {method:'POST'});
+    toast(`已重置 ${r.reset} 首, 开始同步`); render();
+  };
+  await loadDownloads();
+  pollTimer = setInterval(loadDownloads, 2500);
+}};
+async function loadDownloads(){
+  const d = await api(`/api/downloads?provider=${encodeURIComponent(state.dl.provider)}` +
+    `&status=${encodeURIComponent(state.dl.status)}&page=${state.dl.page}`);
+  const s = d.summary, live = d.live;
+  const el = $('page');
+  // 注意: 不能用 dataset 标记"已构建" —— 切走页面后 innerHTML 会被重置,
+  // 标记却还在, 回来时找不到子元素就 null.innerHTML 报错(真踩过)
+  if(!el.querySelector('#liveBox')){
+    el.innerHTML = `
+      <div class="card" style="margin-bottom:14px" id="liveBox"></div>
+      <div class="grid g4" id="dlStats"></div>
+      <div class="grid g2" id="dlCharts"></div>
+      <div class="card" id="dlHist"></div>`;
+  }
+  $('liveBox').innerHTML = `
+    <div class="chd"><div><h2 class="ct">正在下载</h2><div class="ct-sub">LIVE QUEUE · 实时刷新</div></div>
+      <span class="muted" style="font-size:12.5px">${live.count} 个任务</span></div>
+    ${live.active.length ? live.active.map(j=>{
+      const pct = j.total ? Math.round(j.downloaded*100/j.total) : 0;
+      return `<div class="live-row">${pBadge(j.provider)}
+        <div style="min-width:0;flex:1"><div class="t-name" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+          ${esc(j.title)}</div><div class="t-sub">${esc(j.artists)}</div></div>
+        <div class="live-bar">${hBar(pct)}</div>
+        <div class="live-meta num">${statusBadge(j.state)} ${fmtSize(j.downloaded)}${j.total?' / '+fmtSize(j.total):''}</div>
+      </div>`;}).join('')
+      : live.recent.length ? `<div class="t-sub" style="margin-bottom:6px">刚完成：</div>` +
+        live.recent.slice(0,3).map(j=>`
+        <div class="live-row">${pBadge(j.provider)}<div style="flex:1;min-width:0">
+          <div class="t-name">${esc(j.title)}</div><div class="t-sub">${esc(j.artists)}</div></div>
+          <div class="live-meta">${statusBadge(j.state)}</div></div>`).join('')
+      : `<div class="empty" style="padding:8px 0">✓ 当前没有进行中的任务</div>`}`;
+
+  $('dlStats').innerHTML = [
+    ['今日成功', s.ok_today, 'cloud','var(--ink)','transparent'],
+    ['今日失败', s.fail_today, 'cloud','#ef4444','#fdeceb'],
+    ['今日体积', s.bytes_today?fmtSize(s.bytes_today):'–', 'db','var(--accent)','var(--accent-soft)'],
+    ['成功率', s.rate==null?'–':s.rate+'%', 'refresh','var(--ink)','transparent'],
+  ].map(([k,v,ic,c,cs])=>`
+    <div class="card stat" style="--c:${c};--c-soft:${cs}"><div class="row">
+      <div><div class="k">${k}</div><div class="v num">${v}</div></div>
+      <div class="bub">${icon(ic)}</div></div></div>`).join('');
+
+  $('dlCharts').innerHTML = `
+    <div class="card"><div class="chd"><div><h2 class="ct">7 天趋势</h2><div class="ct-sub">成功 / 失败</div></div></div>
+      ${lineChart(s.trend.map(t=>t.day), [
+        {label:'成功', color:'#17140f', points:s.trend.map(t=>t.ok)},
+        {label:'失败', color:'#b23a1e', points:s.trend.map(t=>t.fail)}])}</div>
+    <div class="card"><div class="chd"><div><h2 class="ct">平台分布</h2><div class="ct-sub">本月成功下载</div></div></div>
+      ${donut(s.by_platform.map(p=>({label:p.provider==='netease'?'网易云':'QQ音乐',
+        value:p.count, color:p.provider==='netease'?'#ef4444':'#10b981'})),
+        String(s.by_platform.reduce((a,p)=>a+p.count,0)), '本月')}`;
+
+  const items = d.items || [];
+  $('dlHist').innerHTML = `
+    <div class="chd"><div><h2 class="ct">下载记录</h2><div class="ct-sub">共 ${d.total} 条</div></div>
+      <div class="filters">
+        <select id="fProv"><option value="">全部平台</option><option value="netease" ${state.dl.provider==='netease'?'selected':''}>网易云</option>
+          <option value="qq" ${state.dl.provider==='qq'?'selected':''}>QQ音乐</option></select>
+        <select id="fSt"><option value="">全部状态</option><option value="ok" ${state.dl.status==='ok'?'selected':''}>成功</option>
+          <option value="fail" ${state.dl.status==='fail'?'selected':''}>失败</option></select>
+      </div></div>
+    <table><thead><tr><th>歌曲</th><th style="width:80px">平台</th><th style="width:110px">音质</th>
+      <th style="width:80px">大小</th><th style="width:80px">耗时</th><th style="width:130px">时间</th>
+      <th style="width:70px">状态</th></tr></thead><tbody>
+      ${items.length ? items.map(t=>`
+        <tr><td><div class="t-main"><div style="min-width:0"><div class="t-name">${esc(t.title)}</div>
+          <div class="t-sub">${esc(t.artists)}${t.error?` · <span style="color:#d23c31">${esc(t.error.slice(0,60))}</span>`:''}</div></div></div></td>
+        <td>${pBadge(t.provider)}</td>
+        <td>${t.quality?`<span class="badge quality">${esc(qname(t.quality))}</span>`:'<span class="muted">–</span>'}</td>
+        <td class="num muted">${fmtSize(t.size)}</td>
+        <td class="num muted">${t.elapsed_ms?(t.elapsed_ms/1000).toFixed(1)+'s':'–'}</td>
+        <td class="muted" style="font-size:12px">${esc((t.ts||'').slice(0,16))}</td>
+        <td>${statusBadge(t.status)}</td></tr>`).join('')
+        : '<tr><td colspan="7" class="empty"><span class="e-ic">♪</span>还没有下载记录</td></tr>'}
+      </tbody></table>
+    <div class="pagebar">
+      <button class="ghost" id="pgPrev" ${state.dl.page<=1?'disabled':''}>‹ 上一页</button>
+      <span>第 ${d.page} 页</span>
+      <button class="ghost" id="pgNext" ${d.page*d.size>=d.total?'disabled':''}>下一页 ›</button>
+    </div>`;
+  $('fProv').onchange = e => { state.dl.provider=e.target.value; state.dl.page=1; loadDownloads(); };
+  $('fSt').onchange = e => { state.dl.status=e.target.value; state.dl.page=1; loadDownloads(); };
+  $('pgPrev').onclick = () => { state.dl.page--; loadDownloads(); };
+  $('pgNext').onclick = () => { state.dl.page++; loadDownloads(); };
+}
+
+/* ================= 页面: 歌单同步 ================= */
+function s2(n){ return (n||0).toLocaleString(); }
+PAGES.playlists = { title:'歌单同步', sub:'平台歌单到本地音乐库的对应进度', async render(){
+  const [st, lib] = await Promise.all([api('/api/status'), api('/api/library')]);
+  const rows = (st.playlist_rows || []).filter(p => p.subscribed || (p.items||0) > 0);
+  const totalTr = rows.reduce((a,p)=>a+(p.items||p.track_count||0),0);
+  $('page').innerHTML = `
+    <div class="grid g3">
+      <div class="card stat" style="--c:var(--ink);--c-soft:transparent"><div class="row">
+        <div><div class="k">订阅歌单</div><div class="v num">${s2(rows.filter(p=>p.subscribed).length)}</div><div class="h">个</div></div>
+        <div class="bub">${icon('rss')}</div></div></div>
+      <div class="card stat" style="--c:var(--accent);--c-soft:var(--accent-soft)"><div class="row">
+        <div><div class="k">歌单曲目</div><div class="v num">${s2(totalTr)}</div><div class="h">首</div></div>
+        <div class="bub">${icon('list')}</div></div></div>
+      <div class="card stat" style="--c:var(--ink);--c-soft:transparent"><div class="row">
+        <div><div class="k">本地文件</div><div class="v num">${s2(lib.files)}</div>
+          <div class="h">已入库 ${s2(st.stats.tracks_active)} 条记录</div></div>
+        <div class="bub">${icon('disc')}</div></div></div>
+    </div>
+    <div class="card"><div class="chd"><div><h2 class="ct">歌单列表</h2><div class="ct-sub">点「详情」查看每首歌的下载状态</div></div></div>
+    <div id="plTable"></div></div>
+    <div class="card" style="margin-top:14px">
+      <div class="chd">
+        <div class="chd-main">
+          <h2 class="ct">重复曲目 / 洗版</h2>
+          <div class="hd-tags">
+            <span class="pill tight" id="dupPill">尚未扫描</span>
+            <span class="pill tight" id="trashPill">回收站 · 读取中</span>
+          </div>
+        </div>
+        <div class="chd-acts">
+          <button class="sm" id="dupScan">${icon('search')}扫描重复</button>
+          <button class="sm primary" id="dupUpgrade">${icon('refresh')}一键洗版</button>
+          <button class="sm danger" id="trashTop" disabled>${icon('trash')}清空回收站</button>
+        </div>
+      </div>
+      <details class="hint">
+        <summary>洗版规则与风险</summary>
+        <div class="hint-body">
+          <b>什么算重复</b>：歌名 + 主艺人相同即视为同一首。<br>
+          <b>洗版做什么</b>：每组只留音质最好的文件（按真实位深 / 采样率 / 码率评判，不看文件名），
+          差的移入 <span class="mono">.musehub_trash</span> 回收目录，可找回、可一键清空。<br>
+          <b>不会影响什么</b>：平台收藏和歌单完全不动，只是本地少一份文件。<br>
+          <b>注意</b>：不同专辑里的同一首歌也会被列出。洗版后，差版本所在的那张专辑会缺这首歌。
+        </div>
+      </details>
+      <div class="flash" id="dupFlash"></div>
+      <div id="dupBody"><div class="empty"><span class="e-ic">≡</span>点「扫描重复」检查曲库</div></div>
+    </div>`;
+  renderPlTable(rows);
+  /* 头部按钮: 三个都要绑, 之前 trashTop 漏绑 -> 点了完全没反应 */
+  $('dupScan').onclick = () => scanDuplicates();
+  $('dupUpgrade').onclick = upgradeAll;
+  $('trashTop').onclick = emptyTrash;
+  loadTrashPill();
+  setActs(`<button id="ndSync">${icon('play')}同步到播放器</button>
+    <button class="primary" id="plSync">${icon('refresh')}立即同步</button>`);
+  $('plSync').onclick = async () => {
+    const r = await api('/api/sync', {method:'POST'});
+    toast(r.started ? '同步已开始, 可到「下载任务」看进度' : '已在同步中');
+  };
+  $('ndSync').onclick = async (ev) => {
+    const btn = ev.currentTarget; btn.disabled = true;
+    try{
+      const r = await api('/api/navidrome/sync', {method:'POST'});
+      toast(r.started ? '正在把歌单推到 Navidrome，稍后看「运行日志」' : (r.error || '未能开始'));
+    }catch(e){ toast('失败: ' + e.message); }
+    finally{ setTimeout(()=>{ btn.disabled = false; }, 3000); }
+  };
+}};
+
+/* ---------- 重复/洗版 页的交互小工具 ---------- */
+function busyBtn(btn, label){
+  if(!btn) return ()=>{};
+  const html = btn.innerHTML, wasDisabled = btn.disabled;
+  btn.disabled = true;
+  btn.innerHTML = `<span class="spin"></span>${label}`;
+  return () => { btn.disabled = wasDisabled; btn.innerHTML = html; };
+}
+function dupFlash(msg, kind='info'){
+  const el = $('dupFlash'); if(!el) return;
+  const ic = {ok:'✓', bad:'!', info:'·', busy:'◌'}[kind] || '·';
+  el.className = 'flash show ' + kind;
+  el.innerHTML = `<span class="f-ic">${ic}</span><span>${esc(msg)}</span>`;
+  clearTimeout(el._h);
+  if(kind !== 'busy') el._h = setTimeout(()=>el.classList.remove('show'), 7000);
+}
+function paintTrash(t){
+  const pill = $('trashPill'), btn = $('trashTop');
+  if(pill){
+    pill.innerHTML = t.files
+      ? `回收站 · <b>${t.files}</b> 个文件 · ${fmtSize(t.bytes)}`
+      : '回收站 · 空';
+    pill.className = 'pill tight' + (t.files ? ' warn' : '');
+  }
+  if(btn){
+    btn.disabled = !t.files;
+    btn.title = t.files
+      ? `彻底删除回收目录里的 ${t.files} 个文件（${fmtSize(t.bytes)}），删除后无法恢复`
+      : '回收站是空的，没有可清空的内容';
+  }
+}
+async function loadTrashPill(){
+  try{ const t = await api('/api/trash'); paintTrash(t); return t; }
+  catch(e){ const pill = $('trashPill'); if(pill) pill.textContent = '回收站 · 读取失败'; return null; }
+}
+async function emptyTrash(){
+  const btn = $('trashTop');
+  let t;
+  try{ t = await api('/api/trash'); }
+  catch(e){ dupFlash('读取回收站失败：' + e.message, 'bad'); return; }
+  paintTrash(t);
+  if(!t.files){
+    dupFlash('回收站已经是空的，没有可清空的内容', 'info');
+    return;
+  }
+  if(!await askConfirm('清空回收站？',
+    `将<b>彻底删除</b>回收目录里的 <b>${t.files}</b> 个文件（${fmtSize(t.bytes)}）。<br>
+     删除后无法恢复。平台收藏与歌单不受影响。`,
+    {okText:'彻底删除', danger:true})) return;
+  const done = busyBtn(btn, '清空中…');
+  dupFlash(`正在删除 ${t.files} 个文件（${fmtSize(t.bytes)}）…`, 'busy');
+  try{
+    const r = await api('/api/trash/empty', {method:'POST'});
+    dupFlash(`已清空回收站：删除 ${r.files} 个文件，释放 ${fmtSize(r.bytes)}`, 'ok');
+    toast(`已清空 ${r.files} 个文件，释放 ${fmtSize(r.bytes)}`);
+    await loadTrashPill();
+    scanDuplicates({keepFlash:true});
+  }catch(e){
+    dupFlash('清空失败：' + e.message, 'bad');
+    toast('清空失败: ' + e.message);
+  }finally{ done(); }
+}
+async function upgradeAll(){
+  const btn = $('dupUpgrade');
+  if(!await askConfirm('一键洗版全部？',
+    `每首歌<b>保留音质最好的文件</b>（按真实位深/采样率/码率评判），<br>
+     差音质文件移入回收目录 <span class="mono">.musehub_trash</span>（可找回），<br>
+     平台收藏和歌单完全不受影响。`,
+    {okText:'开始洗版'})) return;
+  const done = busyBtn(btn, '洗版中…');
+  dupFlash('正在洗版，文件多的库可能需要一会儿…', 'busy');
+  try{
+    const r = await api('/api/duplicates/upgrade-all', {method:'POST'});
+    dupFlash(`洗版完成：${r.groups} 组 · 移除 ${r.removed_files} 个差文件 · 释放 ${fmtSize(r.bytes_freed)}`, 'ok');
+    toast(`洗版完成：移除 ${r.removed_files} 个文件，释放 ${fmtSize(r.bytes_freed)}`);
+    await loadTrashPill();
+    scanDuplicates({keepFlash:true});
+  }catch(e){
+    dupFlash('洗版失败：' + e.message, 'bad');
+    toast('洗版失败: ' + e.message);
+  }finally{ done(); }
+}
+function renderPlTable(rows){
+  const el = $('plTable'); if(!el) return;
+  if(!rows.length){ el.innerHTML = '<div class="empty"><span class="e-ic">≡</span>还没有歌单，去「歌单订阅」添加</div>'; return; }
+  el.innerHTML = `<table><thead><tr><th>歌单</th><th style="width:80px">平台</th>
+      <th style="width:70px">曲目</th><th style="width:190px">下载进度</th>
+      <th style="width:100px">同步时间</th><th style="width:200px" class="td-right">操作</th></tr></thead>
+    <tbody>${rows.map(p=>{
+      const denom = p.items || p.track_count || 0;
+      const pct = denom ? Math.round((p.downloaded||0)*100/denom) : 0;
+      return `<tr>
+        <td><div class="t-main"><div style="min-width:0"><div class="t-name">${esc(p.display_name || p.name)}</div>
+          <div class="t-sub">ID: ${esc(p.remote_id)} · ${p.kind==='album'?'专辑':p.kind==='chart'?'榜单':'歌单'}${p.display_name ? ` · 播放器名同此` : ''}</div></div></div></td>
+        <td>${pBadge(p.provider)}</td>
+        <td class="num">${denom}</td>
+        <td><div style="display:flex;gap:8px;align-items:center">${hBar(pct)}
+          <span class="num muted" style="font-size:12px">${p.downloaded||0}/${denom}</span></div>
+          ${p.last_error?`<div class="t-sub" style="color:#d23c31">${esc(p.last_error.slice(0,70))}</div>`:''}</td>
+        <td class="muted" style="font-size:12px">${ago(p.last_sync_at)}</td>
+        <td class="td-right">
+          <button data-detail="${p.id}">详情</button>
+          <button data-toggle="${p.id}">${p.subscribed?'暂停':'恢复'}</button>
+        </td></tr>`;}).join('')}</tbody></table>`;
+  el.querySelectorAll('[data-detail]').forEach(b => b.onclick = () => showPlaylistDetail(b.dataset.detail));
+  el.querySelectorAll('[data-toggle]').forEach(b => b.onclick = async () => {
+    await api(`/api/playlists/${b.dataset.toggle}/toggle`, {method:'POST'});
+    toast('已更新'); render(); });
+}
+async function scanDuplicates(opts){
+  const keepFlash = !!(opts && opts.keepFlash);
+  const box = $('dupBody');
+  if(!box) return;
+  if(!keepFlash){ const f = $('dupFlash'); if(f) f.classList.remove('show'); }
+  box.innerHTML = '<div class="empty"><span class="spin"></span> 正在扫描曲库…</div>';
+  try{
+    const [d, trash] = await Promise.all([api('/api/duplicates'), api('/api/trash')]);
+    paintTrash(trash);
+    const groups = d.groups || [];
+    const spare = groups.reduce((a,g)=>a + Math.max(0, (g.tracks||[]).length - 1), 0);
+    const pill = $('dupPill');
+    if(pill){
+      pill.innerHTML = groups.length
+        ? `重复 <b>${groups.length}</b> 组 · 可清理 ${spare} 个文件`
+        : '无重复';
+      pill.className = 'pill tight' + (groups.length ? ' warn' : '');
+    }
+    if(!groups.length){
+      box.innerHTML = '<div class="empty"><span class="e-ic">✓</span>没有发现重复曲目（每条同曲记录都已指向同一个文件）</div>';
+      if(!keepFlash) dupFlash('扫描完成：曲库很干净，没有重复曲目', 'ok');
+      return;
+    }
+    if(!keepFlash) dupFlash(`扫描完成：发现 ${groups.length} 组重复，最多可清理 ${spare} 个文件`, 'info');
+    box.innerHTML = groups.map((g, gi) => `
+      <div class="dup-g">
+        <div class="dup-gh">
+          <div class="dup-t"><b>${esc(g.title)}</b> <span class="muted">— ${esc(g.artist)}</span>
+            <span class="badge" style="margin-left:4px">${g.tracks.length} 个文件</span></div>
+          <div class="chd-acts">
+            <button class="sm primary" data-upg="${gi}">保留最佳音质</button>
+            <button class="sm" data-dupdel="${gi}">保留第 1 个</button>
+          </div>
+        </div>
+        ${g.tracks.map(t => `<div class="dup-row">
+          ${pBadge(t.provider)}
+          <span>${esc(t.album || '单曲')}</span>
+          ${t.quality?`<span class="badge quality">${esc(qname(t.quality))}</span>`:''}
+          ${t.managed?'':'<span class="badge">原有文件</span>'}
+          ${t.refs>1?`<span class="badge">${t.refs} 条记录共用</span>`:''}
+          <span class="num">${fmtSize(t.size)}</span>
+          <span class="p" title="${esc(t.path)}">${esc(t.path)}</span>
+        </div>`).join('')}
+      </div>`).join('');
+
+    const apply = (payload) => api('/api/duplicates/delete', {method:'POST', body: JSON.stringify(payload)});
+    box.querySelectorAll('[data-upg]').forEach(btn => btn.onclick = async () => {
+      const done = busyBtn(btn, '处理中…');
+      try{
+        const r = await apply({group: btn.dataset.upg, keep: 'best'});
+        dupFlash(`已保留最佳音质：${r.removed_files} 个差文件移入回收目录（可找回）`, 'ok');
+        toast(`已保留最佳音质，移除 ${r.removed_files} 个差文件`);
+        await loadTrashPill();
+        scanDuplicates({keepFlash:true});
+      }catch(e){ dupFlash('洗版失败：' + e.message, 'bad'); done(); }
+    });
+    box.querySelectorAll('[data-dupdel]').forEach(btn => btn.onclick = async () => {
+      const g = groups[btn.dataset.dupdel];
+      if(!await askConfirm('保留第 1 个？',
+        `保留最早入库的第 1 个，其余 <b>${g.tracks.length - 1}</b> 个移入回收目录。<br>
+         回收目录里的文件可找回，也可在右上角一键清空。`,
+        {okText:'保留第 1 个'})) return;
+      const done = busyBtn(btn, '处理中…');
+      try{
+        const r = await apply({group: btn.dataset.dupdel, keep: 'first'});
+        dupFlash(`已保留第 1 个：${r.removed_files} 个文件移入回收目录`, 'ok');
+        toast(`已移除 ${r.removed_files} 个文件`);
+        await loadTrashPill();
+        scanDuplicates({keepFlash:true});
+      }catch(e){ dupFlash('处理失败：' + e.message, 'bad'); done(); }
+    });
+  }catch(e){
+    box.innerHTML = `<div class="empty">扫描失败: ${esc(e.message)}</div>`;
+    dupFlash('扫描失败：' + e.message, 'bad');
+  }
+}
+
+async function showPlaylistDetail(id){
+  const d = await api(`/api/playlists/${id}/tracks`);
+  const p = d.playlist;
+  const active = d.tracks.filter(t=>t.status==='active').length;
+  openModal(`歌单：${p.name}`, `
+    <div class="muted" style="font-size:12.5px;margin-bottom:10px">
+      ${pBadge(p.provider)} · 共 ${d.tracks.length} 首 · 已入库 ${active} ·
+      播放器歌单: ${esc(p.navidrome_name || '未同步')}</div>
+    <table><thead><tr><th style="width:34px">#</th><th>歌曲</th><th style="width:80px">平台</th>
+      <th style="width:70px">时长</th><th style="width:90px">状态</th><th style="width:80px">音质</th>
+      <th style="width:56px"></th></tr></thead><tbody>
+    ${d.tracks.map((t,i)=>`<tr>
+      <td class="muted num">${i+1}</td>
+      <td><div class="t-name">${esc(t.title)}</div><div class="t-sub">${esc(t.artists)}</div>
+        ${t.fail_reason?`<div class="t-sub" style="color:#d23c31">${esc(t.fail_reason.slice(0,80))}</div>`:''}</td>
+      <td>${pBadge(t.provider)}</td>
+      <td class="muted num">${fmtDur(t.duration)}</td>
+      <td>${statusBadge(t.status)}</td>
+      <td>${t.quality?`<span class="badge quality">${esc(qname(t.quality))}</span>`:'–'}</td>
+      <td class="td-right">${t.status==='active'
+        ? `<button data-deli="${i}" style="font-size:12px;padding:3px 9px;color:#d23c31">删除</button>` : ''}</td>
+    </tr>`).join('')}
+    </tbody></table>`);
+
+  $('modalBody').querySelectorAll('[data-deli]').forEach(btn => btn.onclick = async () => {
+    const t = d.tracks[+btn.dataset.deli];
+    const name = `${t.artists} - ${t.title}`;
+    if(!await askConfirm(`删除《${esc(name)}》？`,
+      `会同时<b>删掉本地文件</b>，并在网易云/QQ 取消收藏。<br><b>此操作无法恢复。</b>`,
+      {okText:'删除', danger:true})) return;
+    btn.disabled = true; btn.textContent = '删除中…';
+    try{
+      const r = await api(`/api/tracks/${t.id}/delete`, {method:'POST'});
+      toast(r.queued ? `已删除，并取消 ${r.queued} 个平台收藏` : '已删除');
+      showPlaylistDetail(id);
+    }catch(e){
+      toast('删除失败: ' + e.message);
+      btn.disabled = false; btn.textContent = '删除';
+    }
+  });
+}
+
+/* ================= 页面: 歌单订阅 ================= */
+PAGES.subscriptions = { title:'歌单订阅', sub:'支持歌单、专辑、榜单三种订阅，自动同步下载', async render(){
+  setActs(`<button class="sm" id="ndAcctBtn">${icon('settings')}播放器账号</button>`);
+  $('ndAcctBtn').onclick = showNdAccounts;
+  $('page').innerHTML = `
+    <div class="card" style="margin-bottom:14px">
+      <div class="row-form">
+        <input id="subInput" placeholder="粘贴 歌单 / 专辑 / 榜单 链接，或纯数字 ID">
+        <button class="primary" id="subBtn">${icon('plus')} 订阅并同步</button>
+      </div>
+      <div class="fh" style="color:var(--muted);font-size:11.5px;line-height:1.9">
+        歌单：<span class="mono">music.163.com/playlist?id=…</span> ·
+        <span class="mono">y.qq.com/n/ryqq/playlist/…</span><br>
+        专辑：<span class="mono">music.163.com/album?id=…</span> ·
+        <span class="mono">y.qq.com/n/ryqq/albumDetail/…</span><br>
+        榜单：<span class="mono">music.163.com/discover/toplist?id=…</span> ·
+        <span class="mono">y.qq.com/n/ryqq/toplist/26</span>（26=热歌榜）<br>
+        订阅后按「系统设置 → 同步策略」里的周期自动检查更新；平台取消收藏的歌曲按删除策略处理。</div>
+    </div>
+    <div class="card"><div class="chd"><div><h2 class="ct">已订阅</h2><div class="ct-sub">暂停的歌单不再自动同步</div></div></div>
+      <div id="subList"><div class="empty">加载中…</div></div></div>`;
+  $('subBtn').onclick = addSub;
+  $('subInput').addEventListener('keydown', e => { if(e.key==='Enter') addSub(); });
+  await loadSubs();
+}};
+function kindBadge(k){
+  return k === 'album' ? '<span class="badge" style="background:#eef0fe;color:#4f46e5">专辑</span>'
+    : k === 'chart' ? '<span class="badge" style="background:#f1ecfe;color:#6d3fd4">榜单</span>'
+    : '<span class="badge">歌单</span>';
+}
+async function addSub(){
+  const input = $('subInput').value.trim(); if(!input) return;
+  const btn = $('subBtn'); btn.disabled = true; btn.textContent = '读取中…';
+  try{
+    const r = await api('/api/playlists', {method:'POST', body: JSON.stringify({input})});
+    toast(`已订阅「${r.name}」，共 ${r.tracks} 首`); $('subInput').value = ''; render();
+  }catch(e){ toast('订阅失败: ' + e.message); }
+  finally{ btn.disabled = false; btn.innerHTML = `${icon('plus')} 订阅并同步`; }
+}
+async function loadSubs(){
+  const st = await api('/api/status');
+  const rows = st.playlist_rows || [];
+  const nda = await api('/api/ndaccounts').catch(()=>({default:'', accounts:[]}));
+  const acctOpts = (p) => {
+    const cur = p.mirror_account || '';
+    const all = [{u: nda.default || '默认账号', v: ''}].concat(
+      (nda.accounts||[]).filter(a=>a.username !== nda.default)
+        .map(a=>({u: a.username, v: a.username})));
+    return `<select data-acct="${p.id}" style="max-width:120px">${all.map(o=>
+      `<option value="${esc(o.v)}"${o.v===cur?' selected':''}>${esc(o.u)}</option>`).join('')}</select>`;
+  };
+  $('subList').innerHTML = rows.length ? `<table><thead><tr><th>名称</th>
+      <th style="width:70px">类型</th><th style="width:90px">平台</th><th style="width:80px">曲目</th>
+      <th style="width:130px">播放器账号</th>
+      <th style="width:110px">状态</th><th style="width:190px" class="td-right">操作</th></tr></thead><tbody>
+    ${rows.map(p=>`<tr>
+      <td><div class="t-main"><div style="min-width:0"><div class="t-name">${esc(p.display_name || p.name)}${p.display_name ? ` <span class="muted" style="font-size:11px">(${esc(p.name)})</span>` : ''}</div>
+        <div class="t-sub">ID: ${esc(p.remote_id)}</div></div></div></td>
+      <td>${kindBadge(p.kind)}</td>
+      <td>${pBadge(p.provider)}</td><td class="num">${p.items || p.track_count || 0}</td>
+      <td>${acctOpts(p)}</td>
+      <td>${p.subscribed?'<span class="badge ok">订阅中</span>':'<span class="badge">已暂停</span>'}</td>
+      <td class="td-right"><button data-rename="${p.id}">改名</button>
+        <button data-toggle="${p.id}">${p.subscribed?'暂停':'恢复'}</button>
+        <button class="danger" data-del="${p.id}">移除</button></td></tr>`).join('')}
+    </tbody></table>` : '<div class="empty"><span class="e-ic">≡</span>还没有订阅，在上面粘贴歌单链接试试</div>';
+  $('subList').querySelectorAll('[data-acct]').forEach(sel => sel.onchange = async () => {
+    const v = sel.value;
+    const label = v || '默认账号';
+    if(!await askConfirm('切换播放器账号？',
+      `该歌单的镜像会重建到 <b>${esc(label)}</b> 名下，旧账号里的那份会被删除。<br>
+       <span style="color:var(--muted)">Navidrome 的私有歌单只有创建者看得见，所以换账号=换谁能看到。</span>`,
+      {okText:'切换'})){ loadSubs(); return; }
+    try{
+      await api(`/api/playlists/${sel.dataset.acct}/mirror-account`,
+        {method:'POST', body: JSON.stringify({account: v})});
+      toast('已切换，下次同步时重建到新账号');
+      loadSubs();
+    }catch(e){ toast('失败: ' + e.message); loadSubs(); }
+  });
+  $('subList').querySelectorAll('[data-rename]').forEach(b => b.onclick = () => {
+    const row = rows.find(p => String(p.id) === b.dataset.rename);
+    if(!row) return;
+    openModal('重命名歌单', `
+      <div style="font-size:13px;line-height:1.8">播放器里显示的名称（留空恢复为平台名）<br>
+        <span class="muted" style="font-size:12px">只改镜像歌单的名字，平台上的歌单不受影响</span></div>
+      <input id="rnInput" style="width:100%;margin-top:10px" value="${esc(row.display_name || '')}"
+        placeholder="${esc(row.name)}" autocomplete="off">
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
+        <button id="rnCancel">取消</button>
+        <button id="rnOk" class="primary">保存</button>
+      </div>`);
+    const input = $('rnInput'); input.focus(); input.select();
+    $('rnCancel').onclick = closeModal;
+    const save = async () => {
+      try{
+        const r = await api(`/api/playlists/${row.id}/rename`,
+          {method:'POST', body: JSON.stringify({display_name: input.value.trim()})});
+        toast(r.renamed ? '已改名，播放器里立即生效' : '已保存（播放器暂不可用，下次同步生效）');
+        closeModal(); loadSubs();
+      }catch(e){ toast('失败: ' + e.message); }
+    };
+    $('rnOk').onclick = save;
+    input.onkeydown = e => { if(e.key === 'Enter') save(); };
+  });
+  $('subList').querySelectorAll('[data-toggle]').forEach(b => b.onclick = async () => {
+    await api(`/api/playlists/${b.dataset.toggle}/toggle`, {method:'POST'}); loadSubs(); });
+  $('subList').querySelectorAll('[data-del]').forEach(b => b.onclick = async () => {
+    if(!await askConfirm('移除订阅？', '从 MuseHub 移除该订阅。（不会删除已下载的文件）',
+      {okText:'移除', danger:true})) return;
+    await api(`/api/playlists/${b.dataset.del}`, {method:'DELETE'}); toast('已移除'); loadSubs(); });
+}
+
+/* 播放器账号管理: 私有歌单只有 owner 看得见, 所以按账号分配歌单即可实现"谁看谁的" */
+async function showNdAccounts(){
+  const d = await api('/api/ndaccounts').catch(()=>({default:'', accounts:[]}));
+  const rowHtml = (u, p, isNew) => `
+    <div class="acct-row" style="display:flex;gap:8px;margin-bottom:8px">
+      <input class="acct-user" placeholder="Navidrome 用户名" value="${esc(u)}" ${u===d.default?'disabled':''} style="flex:1">
+      <input class="acct-pass" type="password" placeholder="${u===d.default?'默认账号(无需填)':'密码'}" value="${esc(p)}" style="flex:1">
+      ${u===d.default?'<span class="badge ok" style="align-self:center">默认</span>':''}
+      ${isNew?'':'<button class="acct-del" style="align-self:center">删除</button>'}
+    </div>`;
+  openModal('播放器账号', `
+    <div style="font-size:12.5px;line-height:1.8;color:var(--ink-2);margin-bottom:10px">
+      Navidrome 的私有歌单<b>只有创建者能看见</b>。在这里添加你在 Navidrome 里建的其他账号，
+      然后在歌单列表里把歌单分配到对应账号，就能实现"不同用户看不同歌单"。<br>
+      默认账号：<b>${esc(d.default || '未配置')}</b>（所有未指定账号的歌单都归它）
+    </div>
+    <div id="acctRows">
+      ${(d.accounts||[]).map(a=>rowHtml(a.username,'',false)).join('')}
+    </div>
+    <button id="acctAdd" style="margin-top:4px">+ 添加账号</button>
+    <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px">
+      <button id="acctCancel">取消</button><button id="acctSave" class="primary">保存并验证</button>
+    </div>`);
+  const rows = $('acctRows');
+  const bindDel = () => rows.querySelectorAll('.acct-del').forEach(b => b.onclick = () => b.closest('.acct-row').remove());
+  bindDel();
+  $('acctAdd').onclick = () => { rows.insertAdjacentHTML('beforeend', rowHtml('','',true)); bindDel(); };
+  $('acctCancel').onclick = closeModal;
+  $('acctSave').onclick = async () => {
+    const list = [...rows.querySelectorAll('.acct-row')].map(r => ({
+      username: r.querySelector('.acct-user').value.trim(),
+      password: r.querySelector('.acct-pass').value,
+    })).filter(x => x.username && x.password);
+    try{
+      const r = await api('/api/ndaccounts', {method:'POST', body: JSON.stringify({accounts: list})});
+      const bad = (r.results||[]).filter(x=>!x.ok);
+      toast(bad.length ? `已保存，但 ${bad.map(b=>b.username).join('、')} 登录失败：${bad[0].message}` : '已保存，账号验证通过');
+      closeModal(); loadSubs();
+    }catch(e){ toast('保存失败: ' + e.message); }
+  };
+}
+
+/* 页面: 曲库统计 */
+PAGES.library = { title:'曲库统计', sub:'基于真实文件统计：同一首歌被多个平台收藏只算一次', async render(){
+  const d = await api('/api/library');
+  const bar = (n, max, color) => `<div style="height:6px;border-radius:3px;background:#eef0f4;overflow:hidden">
+      <div style="height:100%;width:${Math.max(2, Math.round(n*100/max))}%;background:${color||'#6366f1'}"></div></div>`;
+  const maxExt = Math.max(1, ...(d.by_ext||[]).map(x=>x.count));
+  const maxQ   = Math.max(1, ...(d.by_quality||[]).map(x=>x.count));
+  const maxA   = Math.max(1, ...(d.top_artists||[]).map(x=>x.count));
+  const maxDec = Math.max(1, ...(d.by_decade||[]).map(x=>x.count));
+
+  $('page').innerHTML = `
+    <div class="grid g4">
+      ${[['曲库文件', d.files, '个音频文件', 'disc','var(--accent)','var(--accent-soft)'],
+         ['总大小', fmtSize(d.total_bytes), '磁盘占用', 'db','var(--ink)','transparent'],
+         ['总时长', fmtDur(d.total_seconds), '累计时长', 'play','var(--ink)','transparent'],
+         ['无损文件', d.lossless_files, `有损 ${d.lossy_files} 个`, 'cloud','var(--ink)','transparent']]
+        .map(([k,v,h,ic,c,cs])=>`
+      <div class="card stat" style="--c:${c};--c-soft:${cs}">
+        <div class="row"><div><div class="k">${k}</div><div class="v num">${v}</div><div class="h">${h}</div></div>
+        <div class="bub">${icon(ic)}</div></div></div>`).join('')}
+    </div>
+
+    <div class="grid g2">
+      <div class="card"><div class="chd"><div><h2 class="ct">格式分布</h2>
+        <div class="ct-sub">按文件扩展名</div></div></div>
+        ${(d.by_ext||[]).map(x=>`<div style="margin-bottom:11px">
+          <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:4px">
+            <b>${esc(String(x.ext||'?').toUpperCase())}</b>
+            <span class="muted">${x.count} 个 · ${fmtSize(x.bytes)}</span></div>
+          ${bar(x.count, maxExt)}</div>`).join('') || '<div class="empty">暂无数据</div>'}
+      </div>
+      <div class="card"><div class="chd"><div><h2 class="ct">音质分布</h2>
+        <div class="ct-sub">按入库时记录的品质（跨平台同曲取其一）</div></div></div>
+        ${(d.by_quality||[]).map(x=>`<div style="margin-bottom:11px">
+          <div style="display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:4px">
+            <b>${esc(qname(x.quality) || '未知')}</b><span class="muted">${x.count} 个</span></div>
+          ${bar(x.count, maxQ, '#10b981')}</div>`).join('') || '<div class="empty">暂无数据</div>'}
+      </div>
+    </div>
+
+    <div class="grid g2">
+      <div class="card"><div class="chd"><div><h2 class="ct">Top 艺人</h2>
+        <div class="ct-sub">收录曲目数最多的艺人</div></div></div>
+        ${(d.top_artists||[]).map((x,i)=>`<div style="display:flex;align-items:center;gap:10px;padding:5px 0">
+          <span class="muted" style="width:20px;text-align:right">${i+1}</span>
+          <span style="flex:0 0 150px;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(x.name)}</span>
+          <div style="flex:1">${bar(x.count, maxA, '#8b5cf6')}</div>
+          <span class="muted" style="font-size:12px;width:36px;text-align:right">${x.count}</span>
+        </div>`).join('') || '<div class="empty">暂无数据</div>'}
+      </div>
+      <div class="card"><div class="chd"><div><h2 class="ct">Top 专辑</h2>
+        <div class="ct-sub">收录曲目最多的专辑</div></div></div>
+        ${(d.top_albums||[]).map((x,i)=>`<div style="display:flex;align-items:center;gap:10px;padding:5px 0">
+          <span class="muted" style="width:20px;text-align:right">${i+1}</span>
+          <span style="flex:1;font-size:12.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+            ${esc(x.album)} <span class="muted">— ${esc(x.artist)}</span></span>
+          <span class="badge">${x.count}</span>
+        </div>`).join('') || '<div class="empty">暂无数据</div>'}
+      </div>
+    </div>
+
+    <div class="card"><div class="chd"><div><h2 class="ct">年代分布</h2>
+      <div class="ct-sub">按发行年份归到十年区间（仅统计带年份标签的曲目）</div></div></div>
+      ${(d.by_decade||[]).length ? `<div style="display:flex;align-items:flex-end;gap:12px;height:158px;padding:8px 4px 0">
+        ${d.by_decade.map(x=>`<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;justify-content:flex-end">
+          <span class="muted" style="font-size:11px">${x.count}</span>
+          <div style="width:100%;max-width:56px;height:${Math.max(6, Math.round(x.count*100/maxDec))}px;
+            background:linear-gradient(180deg,#8b5cf6,#6366f1);border-radius:5px 5px 0 0"></div>
+          <span style="font-size:11.5px;color:#5b6273">${esc(x.decade)}</span>
+        </div>`).join('')}
+      </div>` : '<div class="empty">暂无年份信息（导入时未读到发行年）</div>'}
+    </div>`;
+  setActs('');
+}};
+
+/* ================= 页面: 库体检（封面/歌词） ================= */
+PAGES.repair = { title:'库体检', sub:'元数据补全、封面与歌词体检，一键修复', async render(){
+  $('page').innerHTML = `
+    <div class="card" style="margin-bottom:16px">
+      <div class="chd">
+        <div class="chd-main">
+          <h2 class="ct">元数据补全</h2>
+          <div class="hd-tags">
+            <span class="pill tight" id="msPill">检测中…</span>
+            <span class="pill tight" id="msLast">—</span>
+          </div>
+        </div>
+        <div class="chd-acts">
+          <button class="sm" id="msFixYear">只补年份</button>
+          <button class="sm primary" id="msFixAll">${icon('refresh')}补全缺失字段</button>
+        </div>
+      </div>
+      <details class="hint">
+        <summary>刮削规则（只补空缺，不改已有）</summary>
+        <div class="hint-body">
+          <b>补什么</b>：年份、音轨号、专辑、专辑艺人、封面地址——只补<b>空着的</b>，
+          已有值（标题/艺人/专辑写法）一律不动。<br>
+          <b>怎么取</b>：用库里记录的<b>平台 ID</b> 直接向网易云/QQ 取这首歌的权威数据，
+          不做"标题+艺人"搜索，所以不会配错成现场版或翻唱。<br>
+          <b>为什么不用 Music Tag Web</b>：它的源（酷狗/酷我/QQ）都不返回流派，且只能靠搜索匹配。
+          实测它对已有标签的文件会整首跳过，对你这个库等于空转。<br>
+          <b>能力边界</b>：流派补不了——网易云/QQ 接口都不提供 genre 字段。
+          另外 <span class="mono">provider=local</span> 的本地文件没有平台 ID，不在自动范围内。
+        </div>
+      </details>
+      <div class="flash" id="msFlash"></div>
+      <div id="msBody"></div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <div class="chd">
+        <div class="chd-main">
+          <h2 class="ct">封面 / 歌词体检</h2>
+          <div class="hd-tags">
+            <span class="pill tight" id="rpPill">尚未检测</span>
+            <span class="pill tight" id="rpLast">—</span>
+          </div>
+        </div>
+        <div class="chd-acts">
+          <button class="sm" id="rpScan">${icon('search')}开始检测</button>
+          <button class="sm" id="rpFixCover" disabled>只补封面</button>
+          <button class="sm" id="rpFixLyric" disabled>只补歌词</button>
+          <button class="sm primary" id="rpFixAll" disabled>${icon('refresh')}全部补齐</button>
+        </div>
+      </div>
+      <details class="hint">
+        <summary>检测口径与修复来源</summary>
+        <div class="hint-body">
+          <b>算有封面</b>：文件内嵌图片，或同目录有 <span class="mono">cover.jpg</span>（播放器都能显示）。<br>
+          <b>算有歌词</b>：同名 <span class="mono">.lrc</span> 文件，或文件内嵌歌词标签。<br>
+          <b>修复来源</b>：封面用入库时记录的平台封面地址重新下载；歌词走平台歌词接口。
+          两边都取不到时会计入「无源」，这类只能手动放文件。<br>
+          <b>安全</b>：只补缺失的，已有封面/歌词的文件不会被覆盖。
+        </div>
+      </details>
+      <div class="flash" id="rpFlash"></div>
+      <div id="rpBody"><div class="empty"><span class="e-ic">✓</span>点「开始检测」扫描曲库（约 20–60 秒）</div></div>
+    </div>`;
+  setActs('');
+  $('rpScan').onclick = () => startRepairScan();
+  $('rpFixAll').onclick = () => startRepairFix(['cover','lyric'], '全部缺失项');
+  $('rpFixCover').onclick = () => startRepairFix(['cover'], '只补封面');
+  $('rpFixLyric').onclick = () => startRepairFix(['lyric'], '只补歌词');
+  $('msFixYear').onclick = () => startScrape(['year'], '只补年份');
+  $('msFixAll').onclick = () => startScrape(['year','track_no','album','albumartist','cover'], '补全缺失字段');
+  const st = await api('/api/repair/status').catch(()=>null);
+  if(st && st.cached) renderRepairResult(st.cached, st.last_fix);
+  else if(st && st.running) watchRepair();
+  loadScrapeScan();
+}};
+
+/* ---- 元数据补全 ---- */
+function renderScrapeScan(r){
+  const c = r.counts || {};
+  const need = (c.year||0) + (c.track_no||0) + (c.album||0) + (c.albumartist||0) + (c.cover||0);
+  const pill = $('msPill');
+  if(pill){
+    pill.innerHTML = r.need
+      ? `缺年份 <b>${c.year||0}</b> · 缺音轨号 <b>${c.track_no||0}</b> · 缺专辑 <b>${c.album||0}</b>`
+      : '元数据齐全';
+    pill.className = 'pill tight' + (r.need ? ' warn' : '');
+  }
+  const last = $('msLast');
+  if(last) last.textContent = `${r.total} 条记录 · 可精确补 ${r.exact} 条 · 本地文件 ${r.search_only} 条（不在范围内）`;
+  const box = $('msBody'); if(!box) return;
+  const items = (r.items || []).filter(x => x.exact);
+  if(!items.length){
+    box.innerHTML = `<div class="empty"><span class="e-ic">✓</span>没有可自动补全的记录</div>`;
+    return;
+  }
+  box.innerHTML = `
+    <div class="muted" style="font-size:12.5px;margin-bottom:6px">
+      共 ${items.length} 条可补${items.length > 200 ? '（下列前 200 条）' : ''}
+    </div>
+    ${items.slice(0, 200).map(t => `
+      <div class="dup-row">
+        ${pBadge(t.provider)}
+        <span style="flex:1;min-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+          <b>${esc(t.title)}</b> <span class="muted">— ${esc(t.artists)}</span></span>
+        ${t.missing.map(f => `<span class="badge warn">${({year:'缺年份',track_no:'缺音轨号',album:'缺专辑',albumartist:'缺专辑艺人',cover:'缺封面'})[f] || f}</span>`).join('')}
+      </div>`).join('')}`;
+}
+async function loadScrapeScan(){
+  try{
+    const r = await api('/api/scrape/scan');
+    renderScrapeScan(r);
+  }catch(e){
+    const box = $('msBody'); if(box) box.innerHTML = `<div class="empty">检测失败: ${esc(e.message)}</div>`;
+  }
+}
+function msFlash(msg, kind='info'){
+  const el = $('msFlash'); if(!el) return;
+  const ic = {ok:'✓', bad:'!', info:'·', busy:'◌'}[kind] || '·';
+  el.className = 'flash show ' + kind;
+  el.innerHTML = `<span class="f-ic">${ic}</span><span>${esc(msg)}</span>`;
+  clearTimeout(el._h);
+  if(kind !== 'busy') el._h = setTimeout(()=>el.classList.remove('show'), 9000);
+}
+async function startScrape(fields, label){
+  if(!await askConfirm(`开始${label}？`,
+    `只补<b>空着的字段</b>，已有值不会被覆盖。<br>
+     按库里记录的平台 ID 精确取数据，不做搜索匹配。<br>
+     <span style="color:var(--muted)">会同时把新值写回音频文件标签，播放器里才能看到。</span>`,
+    {okText:'开始' })) return;
+  msFlash(`正在${label}…`, 'busy');
+  try{
+    await api('/api/scrape/run', {method:'POST', body: JSON.stringify({fields})});
+    watchScrape();
+  }catch(e){ msFlash('启动失败：' + e.message, 'bad'); }
+}
+function watchScrape(){
+  clearInterval(window._msTimer);
+  window._msTimer = setInterval(async () => {
+    let s;
+    try{ s = await api('/api/scrape/status'); }catch(e){ clearInterval(window._msTimer); return; }
+    if(s.running){
+      const p = s.progress || {};
+      msFlash(p.total ? `处理中 ${p.done}/${p.total} · ${p.current || ''}` : '正在准备…', 'busy');
+      return;
+    }
+    clearInterval(window._msTimer);
+    if(s.error){ msFlash('任务失败：' + s.error, 'bad'); return; }
+    const r = s.result || s.last_run;
+    if(r){
+      const parts = Object.entries(r.by_field || {}).filter(([,v]) => v)
+        .map(([f,v]) => `${({year:'年份',track_no:'音轨号',album:'专辑',albumartist:'专辑艺人',cover:'封面'})[f]||f} +${v}`);
+      msFlash(`完成：更新 ${r.updated} 条` + (parts.length ? `（${parts.join(' · ')}）` : '')
+        + (r.no_source ? ` · 无源 ${r.no_source}` : '')
+        + (r.files_written ? ` · 写入文件 ${r.files_written}` : '')
+        + (r.failed ? ` · 失败 ${r.failed}` : ''), 'ok');
+      if(r.samples && r.samples.length){
+        const box = $('msBody');
+        if(box) box.innerHTML = `<div class="note">本次样例：<br>${r.samples.map(esc).join('<br>')}</div>`;
+      }
+    }
+    if(s.cached) renderScrapeScan(s.cached);
+  }, 1500);
+}
+
+function rpFlash(msg, kind='info'){
+  const el = $('rpFlash'); if(!el) return;
+  const ic = {ok:'✓', bad:'!', info:'·', busy:'◌'}[kind] || '·';
+  el.className = 'flash show ' + kind;
+  el.innerHTML = `<span class="f-ic">${ic}</span><span>${esc(msg)}</span>`;
+  clearTimeout(el._h);
+  if(kind !== 'busy') el._h = setTimeout(()=>el.classList.remove('show'), 8000);
+}
+function renderRepairResult(r, lastFix){
+  const pill = $('rpPill');
+  const need = (r.missing_cover || 0) + (r.missing_lyric || 0);
+  if(pill){
+    pill.innerHTML = need
+      ? `缺封面 <b>${r.missing_cover}</b> · 缺歌词 <b>${r.missing_lyric}</b>`
+      : '全部齐全';
+    pill.className = 'pill tight' + (need ? ' warn' : '');
+  }
+  const last = $('rpLast');
+  if(last && r.scanned_at) last.textContent = `检查 ${r.checked} 个文件 · 耗时 ${r.elapsed}s`;
+  const btnAll = $('rpFixAll'), btnC = $('rpFixCover'), btnL = $('rpFixLyric');
+  if(btnAll) btnAll.disabled = !need;
+  if(btnC) btnC.disabled = !(r.missing_cover > 0);
+  if(btnL) btnL.disabled = !(r.missing_lyric > 0);
+  const box = $('rpBody'); if(!box) return;
+  const items = r.items || [];
+  if(!items.length && !(lastFix && lastFix.total)){
+    box.innerHTML = `<div class="empty"><span class="e-ic">✓</span>曲库很干净：${r.checked} 个文件都有封面和歌词</div>`;
+    return;
+  }
+  let head = '';
+  if(lastFix && lastFix.total){
+    const fixed = (lastFix.fixed_cover || 0) + (lastFix.fixed_lyric || 0);
+    if(fixed || lastFix.no_source){
+      head = `<div class="flash show ok" style="margin-bottom:12px;align-items:flex-start">
+        <span class="f-ic">✓</span>
+        <span>上一轮补齐：<b>封面 +${lastFix.fixed_cover || 0}</b> · <b>歌词 +${lastFix.fixed_lyric || 0}</b>
+        ${lastFix.no_source ? ` · <b>${lastFix.no_source}</b> 项平台取不到资源` : ''}</span></div>`;
+      if(lastFix.no_source_names && lastFix.no_source_names.length){
+        head += `<div class="note">这些不是没修，是平台侧确实没有对应资源（现场版/冷门歌常见），
+          只能手动找图/歌词放进去：<br>${lastFix.no_source_names.slice(0, 12).map(esc).join('<br>')}
+          ${lastFix.no_source_names.length > 12 ? '<br>…' : ''}</div>`;
+      }
+    }
+  }
+  if(!items.length){
+    box.innerHTML = head + `<div class="empty"><span class="e-ic">✓</span>现在全部齐全了（${r.checked} 个文件）</div>`;
+    return;
+  }
+  const rows = items.slice(0, 300).map(t => `
+    <div class="dup-row">
+      ${pBadge(t.provider)}
+      <span style="flex:1;min-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+        <b>${esc(t.title)}</b> <span class="muted">— ${esc(t.artists)}</span></span>
+      ${t.missing.includes('cover') ? '<span class="badge warn">缺封面</span>' : ''}
+      ${t.missing.includes('lyric') ? '<span class="badge warn">缺歌词</span>' : ''}
+      <span class="p" title="${esc(t.path)}">${esc(t.path)}</span>
+    </div>`).join('');
+  box.innerHTML = head + `
+    <div class="muted" style="font-size:12.5px;margin-bottom:6px">
+      共 ${items.length} 首需要处理${items.length > 300 ? '（下面只列前 300 首，补齐按钮会处理全部）' : ''}
+    </div>${rows}`;
+}
+function watchRepair(keepFlash){
+  clearInterval(window._rpTimer);
+  window._rpTimer = setInterval(async () => {
+    let s;
+    try{ s = await api('/api/repair/status'); }catch(e){ clearInterval(window._rpTimer); return; }
+    if(s.running){
+      const p = s.progress || {};
+      if(s.mode === 'fix' && p.total){
+        rpFlash(`${s.mode === 'fix' ? '补齐中' : '扫描中'} ${p.done}/${p.total} · ${p.current || ''}`, 'busy');
+      }else{
+        rpFlash(s.mode === 'fix' ? '正在补齐…' : '正在扫描曲库（读每个文件的标签）…', 'busy');
+      }
+      return;
+    }
+    clearInterval(window._rpTimer);
+    if(s.error){ rpFlash('任务失败：' + s.error, 'bad'); return; }
+    if(s.mode === 'fix' && s.result){
+      const r = s.result;
+      rpFlash(`补齐完成：封面 +${r.fixed_cover} · 歌词 +${r.fixed_lyric}`
+        + (r.no_source ? ` · ${r.no_source} 项平台无资源` : '')
+        + (r.failed ? ` · 失败 ${r.failed}` : ''), 'ok');
+      startRepairScan(true, true);   // 修完自动重扫, 界面上会保留"上一轮补齐结果"
+      return;
+    }
+    if(s.result){
+      renderRepairResult(s.result, s.last_fix);
+      const need = (s.result.missing_cover || 0) + (s.result.missing_lyric || 0);
+      if(!keepFlash) rpFlash(need ? `检测完成：${s.result.items.length} 首缺东西` : '检测完成：全部齐全', need ? 'info' : 'ok');
+    }
+  }, 1500);
+}
+async function startRepairScan(keepFlash, keepFlashAfter){
+  if(!keepFlash) rpFlash('正在扫描曲库…', 'busy');
+  const btn = $('rpScan'); const done = busyBtn(btn, '扫描中…');
+  try{
+    await api('/api/repair/scan', {method:'POST'});
+    done();
+    watchRepair(keepFlashAfter);
+  }catch(e){ rpFlash('启动失败：' + e.message, 'bad'); done(); }
+}
+async function startRepairFix(kinds, label){
+  const target = label === '全部缺失项' ? '所有缺失的封面和歌词' : label.replace('只补', '所有缺失的');
+  if(!await askConfirm(`开始${label}？`,
+    `将补齐<b>${target}</b>，已存在的一律不覆盖。<br>
+     文件多的库可能要几分钟，期间可以留在本页看进度。<br>
+     <span style="color:var(--muted)">平台侧取不到资源的会单独列出来，不会算作失败。</span>`,
+    {okText:'开始补齐'})) return;
+  rpFlash(`正在${label}…`, 'busy');
+  try{
+    await api('/api/repair/fix', {method:'POST', body: JSON.stringify({kinds})});
+    watchRepair(true);
+  }catch(e){ rpFlash('启动失败：' + e.message, 'bad'); }
+}
+
+/* ================= 页面: 运行日志 ================= */
+PAGES.logs = { title:'运行日志', sub:'同步、下载、回推与配置变更的完整轨迹', async render(){
+  $('page').innerHTML = `
+    <div class="card">
+      <div class="chd"><div class="filters">
+        <select id="logLevel"><option value="">全部级别</option><option value="error" ${state.log.level==='error'?'selected':''}>错误</option>
+          <option value="warn" ${state.log.level==='warn'?'selected':''}>警告</option><option value="info" ${state.log.level==='info'?'selected':''}>信息</option></select>
+        <select id="logSource"><option value="">全部来源</option></select>
+        <input id="logQ" placeholder="搜关键词（消息/来源）" value="${esc(state.log.q||'')}"
+          style="min-width:200px;padding:6px 10px;font-size:12.5px">
+      </div><span class="muted" style="font-size:12.5px" id="logTotal"></span></div>
+      <div id="logTable"></div>
+      <div class="pagebar"><button class="ghost" id="logPrev" ${state.log.page<=1?'disabled':''}>‹ 上一页</button>
+        <button class="ghost" id="logNext">下一页 ›</button></div>
+    </div>`;
+  const load = async () => {
+    const qs = new URLSearchParams({level: state.log.level, source: state.log.source || '',
+                                   q: state.log.q || '', page: String(state.log.page)});
+    const d = await api(`/api/logs?${qs}`);
+    $('logTotal').textContent = `共 ${d.total} 条`;
+    const sel = $('logSource');
+    if(sel && d.sources){
+      const cur = state.log.source || '';
+      sel.innerHTML = `<option value="">全部来源</option>` +
+        d.sources.map(x => `<option value="${esc(x)}"${x===cur?' selected':''}>${esc(x)}</option>`).join('');
+    }
+    const ic = {info:'·', warn:'⚠️', error:'❌'};
+    $('logTable').innerHTML = `<table><tbody>${(d.items||[]).map(e=>`
+      <tr><td style="width:92px;white-space:nowrap" class="muted num mono">${esc((e.ts||'').slice(5,16).replace('T',' '))}</td>
+      <td style="width:30px">${ic[e.level]||'·'}</td>
+      <td style="width:90px"><span class="badge">${esc(e.source)}</span></td>
+      <td style="${e.level==='error'?'color:#d23c31':e.level==='warn'?'color:#b26a05':''}">${esc(e.message)}</td>
+      </tr>`).join('') || '<tr><td class="empty">暂无日志</td></tr>'}</tbody></table>`;
+    $('logPrev').disabled = state.log.page <= 1;
+    $('logNext').disabled = d.page * 60 >= d.total;
+  };
+  $('logLevel').onchange = e => { state.log.level = e.target.value; state.log.page = 1; load(); };
+  $('logSource').onchange = e => { state.log.source = e.target.value; state.log.page = 1; load(); };
+  let qTimer;
+  $('logQ').oninput = e => {
+    clearTimeout(qTimer);
+    const v = e.target.value;
+    qTimer = setTimeout(() => { state.log.q = v; state.log.page = 1; load(); }, 320);
+  };
+  $('logPrev').onclick = () => { state.log.page--; load(); };
+  $('logNext').onclick = () => { state.log.page++; load(); };
+  await load();
+}};
+
+/* ================= 页面: 系统设置 ================= */
+PAGES.settings = { title:'系统设置', sub:'每个分组独立保存，保存后立即生效', async render(){
+  const d = await api('/api/settings');
+  const fieldHtml = f => {
+    const id = 'f_' + f.key.replace(/\W/g,'_');
+    if(f.kind === 'bool') return `<div class="fld switch"><input type="checkbox" id="${id}" data-key="${f.key}"
+      ${String(f.value)==='1'||f.value===true?'checked':''}><label for="${id}">${esc(f.label)}</label></div>
+      ${f.help?`<div class="fh" style="margin:-6px 0 12px 25px">${esc(f.help)}</div>`:''}`;
+    let input;
+    if(f.kind==='select' || f.kind==='quality') input = `<select id="${id}" data-key="${f.key}">` + f.options.map(o =>
+      `<option value="${esc(o.value)}" ${o.value===f.value?'selected':''}>${esc(o.label)}</option>`).join('') + '</select>';
+    else if(f.kind==='cookie') input = `<textarea id="${id}" data-key="${f.key}" rows="4" placeholder="${esc(f.placeholder||'')}">${esc(f.value)}</textarea>`;
+    else if(f.kind==='secret') input = `<input type="password" id="${id}" data-key="${f.key}" value="${esc(f.value)}" placeholder="${esc(f.placeholder||'')}">`;
+    else if(f.kind==='number') input = `<input type="number" id="${id}" data-key="${f.key}" value="${esc(f.value)}">`;
+    else input = `<input type="text" id="${id}" data-key="${f.key}" value="${esc(f.value)}" placeholder="${esc(f.placeholder||'')}">`;
+    const detect = f.key === 'qq.favorite_dissid'
+      ? `<button type="button" data-detect="qq" style="margin-left:8px;font-size:12px;padding:4px 9px">自动查找</button>`
+      : '';
+    return `<div class="fld"><label for="${id}">${esc(f.label)}${detect}</label>${input}
+      ${f.help?`<div class="fh">${esc(f.help)}</div>`:''}</div>`;
+  };
+  const ro = d.readonly || {};
+  let html = '';
+  if(d.password_set === false) html += `<div class="card" style="border-color:#f2c4bd;background:#fdf1ef;color:#a13228;margin-bottom:14px">
+    ⚠️ <b>未设置面板密码</b>：局域网内任何人都能打开此页面并看到你的平台 Cookie，请在「面板」分组设置密码。</div>`;
+  html += `<div class="card" style="margin-bottom:14px"><h2 class="ct">路径（只读）</h2>
+    <div class="fh" style="margin-top:6px">音乐库：<span class="badge mono">${esc(ro.music_dir||'')}</span> ·
+      数据目录：<span class="badge mono">${esc(ro.data_dir||'')}</span><br>${esc(ro.note||'')}</div></div>
+    <div class="tabs" id="setTabs"></div><div id="setBody"></div>`;
+  $('page').innerHTML = html;
+
+  const groups = d.groups;
+  let cur = groups[0].id;
+
+  const collect = () => {
+    const values = {};
+    $('setBody').querySelectorAll('[data-key]').forEach(el => {
+      values[el.dataset.key] = el.type === 'checkbox' ? (el.checked ? '1' : '0') : el.value;
+    });
+    return values;
+  };
+
+  const saveGroup = async (gid, btn) => {
+    const hint = $('sh_' + gid);
+    btn.disabled = true; const old = btn.innerHTML; btn.innerHTML = '保存中…';
+    try{
+      const r = await api('/api/settings', {method:'POST', body: JSON.stringify({values: collect()})});
+      if(r.errors && r.errors.length){
+        hint.className = 'save-hint bad'; hint.textContent = '✗ ' + r.errors.join('；');
+      } else if(r.warnings && r.warnings.length){
+        hint.className = 'save-hint warn'; hint.textContent = '✓ 已保存，但：' + r.warnings.join('；');
+      } else {
+        hint.className = 'save-hint ok';
+        hint.textContent = r.changed.length ? `✓ 已保存 ${r.changed.length} 项，立即生效` : '没有改动';
+      }
+      if(r.changed && r.changed.includes('web.password')) setTimeout(()=>location.reload(), 1200);
+      footTick();
+    }catch(e){
+      hint.className = 'save-hint bad'; hint.textContent = '✗ 保存失败: ' + e.message;
+    }finally{ btn.disabled = false; btn.innerHTML = old; }
+  };
+
+  const renderTabs = () => {
+    $('setTabs').innerHTML = groups.map(g =>
+      `<button data-g="${g.id}" class="${g.id===cur?'on':''}">${esc(g.label)}</button>`).join('');
+    const g = groups.find(x => x.id === cur);
+    const canTest = ['platform','navidrome','telegram','notify'].includes(g.id);
+    $('setBody').innerHTML = `<div class="card grp-card" style="--gc:${g.color};--gs:${g.soft}">
+      <div class="grp-head">
+        <div class="grp-ic">${icon(g.icon || 'grid')}</div>
+        <div><h2>${esc(g.label)}</h2><div class="grp-desc">${esc(g.desc)}</div></div>
+      </div>
+      <div class="grp-body">${g.fields.map(fieldHtml).join('')}</div>
+      <div class="grp-foot">
+        <button class="primary" data-save>${icon('check')}保存设置</button>
+        ${canTest?`<button data-test>测试连接</button>`:''}
+        <span class="save-hint" id="sh_${g.id}"></span>
+      </div>
+      <div class="testres" id="tr_${g.id}" style="margin:0 18px 16px"></div>
+    </div>`;
+
+    $('setBody').querySelector('[data-save]').onclick = ev => saveGroup(g.id, ev.currentTarget);
+    const detectBtn = $('setBody').querySelector('[data-detect]');
+    if(detectBtn){
+      detectBtn.onclick = async ev => {
+        ev.preventDefault();
+        detectBtn.disabled = true; detectBtn.textContent = '查找中…';
+        try{
+          const r = await api('/api/settings/detect/qq-favorite', {method:'POST', body:'{}'});
+          if(r.ok && r.candidates.length){
+            const c = r.candidates[0];
+            $('f_qq_favorite_dissid').value = c.id;
+            toast(`找到「${c.name}」(${c.id})，记得点保存`);
+          } else {
+            toast('没找到名字含「喜欢」的歌单，请手动填');
+          }
+        }catch(e){ toast('查找失败: ' + e.message); }
+        finally{ detectBtn.disabled = false; detectBtn.textContent = '自动查找'; }
+      };
+    }
+    const testBtn = $('setBody').querySelector('[data-test]');
+    if(testBtn){
+      testBtn.onclick = async ev => {
+        const box = $('tr_' + g.id);
+        box.className = 'testres show'; box.textContent = '测试中…';
+        ev.currentTarget.disabled = true;
+        try{
+          const r = await api('/api/settings/test', {method:'POST', body: JSON.stringify({group: g.id})});
+          box.className = 'testres show ' + (r.ok ? 'ok' : 'bad');
+          box.textContent = (r.ok ? '✅ ' : '❌ ') + JSON.stringify(r.detail, null, 1);
+        }catch(e){ box.className = 'testres show bad'; box.textContent = '❌ ' + e.message; }
+        finally{ ev.currentTarget.disabled = false; }
+      };
+    }
+    $('setTabs').querySelectorAll('button').forEach(b => {
+      b.onclick = () => { if(b.dataset.g === cur) return; cur = b.dataset.g; renderTabs(); };
+    });
+  };
+  renderTabs();
+}};
+
+/* ================= 全局状态(侧栏状态灯) ================= */
+async function footTick(){
+  try{
+    const d = await api('/api/status');
+    $('footDot').className = 'dot ' + (d.syncing ? 'ok' : (d.stats.actions_failed ? 'bad' : 'ok'));
+    $('footText').textContent = d.syncing ? '同步中…' : (d.dry_run ? '试运行 · 空闲' : '实盘 · 空闲');
+  }catch(e){ $('footDot').className='dot'; $('footText').textContent='未连接'; }
+}
+footTick(); setInterval(footTick, 6000);
+</script>
+</body>
+</html>
