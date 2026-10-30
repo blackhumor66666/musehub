@@ -1504,7 +1504,8 @@ function renderRepairMerged(scan, rep){
   ((rep && rep.cached && rep.cached.items) || []).forEach(put);
 
   const rows = [...map.values()].filter(x => x.missing.size);
-  const metaNeed = (scan && scan.need) || 0;
+  const metaNeed = (scan && scan.exact) || 0;        // 能精确补的曲目数
+  const noId = (scan && scan.search_only) || 0;      // 本地文件没有平台 ID, 补不了
   const scanned = !!(rep && rep.cached);          // 封面/歌词是否已检测过
   const covNeed = scanned ? (rep.cached.missing_cover || 0) : null;
   const lyrNeed = scanned ? (rep.cached.missing_lyric || 0) : null;
@@ -1512,7 +1513,9 @@ function renderRepairMerged(scan, rep){
   const pill = $('rpPill');
   if(pill){
     const show = (v) => v === null ? '<span class="muted">未检测</span>' : `<b>${v}</b>`;
-    pill.innerHTML = `待补 <b>${metaNeed}</b> 首 · 缺封面 ${show(covNeed)} · 缺歌词 ${show(lyrNeed)}`;
+    pill.innerHTML = `可补 <b>${metaNeed}</b> 首`
+      + (noId ? ` · 无平台ID ${noId}` : '')
+      + ` · 缺封面 ${show(covNeed)} · 缺歌词 ${show(lyrNeed)}`;
     const warn = metaNeed > 0 || (covNeed || 0) > 0 || (lyrNeed || 0) > 0;
     pill.className = 'pill tight' + (warn ? ' warn' : '');
   }
