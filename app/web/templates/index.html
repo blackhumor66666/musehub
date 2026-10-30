@@ -334,6 +334,11 @@ tr:last-child td{border-bottom:none}
 .modal.open,.modal.show{display:flex;animation:fade .22s ease-out both}
 @keyframes fade{from{opacity:0}to{opacity:1}}
 .modal .box.wide{width:min(1040px,96vw);max-height:90vh}
+.acct-row{display:flex;gap:8px;margin-bottom:8px;align-items:center}
+.acct-row input,.acctnew input{height:36px;padding:0 10px;font-size:13px;box-sizing:border-box}
+.acctnew{display:flex;gap:8px;margin:8px 0 14px;padding:12px;background:var(--paper-3);
+  border:1px solid var(--rule);align-items:center;flex-wrap:wrap}
+.acctnew button{height:36px;white-space:nowrap;padding:0 14px}
 .modal .box{
   background:var(--paper-2);border:1px solid var(--ink);border-radius:3px;
   width:min(520px,100%);max-height:86vh;overflow:auto;box-shadow:0 24px 60px rgba(23,20,15,.28);
@@ -1100,6 +1105,7 @@ async function showPlaylistDetail(id){
   const d = await api(`/api/playlists/${id}/tracks`);
   const p = d.playlist;
   const active = d.tracks.filter(t=>t.status==='active').length;
+  d.tracks = d.tracks.filter(t => t.status !== 'deleted');
   openModal(`歌单：${p.name}`, `
     <div class="muted" style="font-size:12.5px;margin-bottom:10px">
       ${pBadge(p.provider)} · 共 ${d.tracks.length} 首 · 已入库 ${active} ·
@@ -1135,8 +1141,7 @@ async function showPlaylistDetail(id){
       toast(plat.length
         ? `已删除本地文件，正在取消 ${plat.join('、')} 的收藏（失败会进待处理）`
         : '已删除本地文件');
-      const tr = btn.closest('tr');
-      if(tr){ tr.style.opacity = '.35'; setTimeout(() => tr.remove(), 250); }
+      showPlaylistDetail(id);      // 留在歌单详情里继续处理, 不回主界面
     }catch(e){
       toast('删除失败: ' + e.message);
       btn.disabled = false; btn.textContent = '删除';
@@ -1299,10 +1304,10 @@ async function showNdAccounts(){
       也可以在 Navidrome 后台建好后在这里填写。<br>
       默认账号：<b>${esc(d.default || '未配置')}</b>（所有未指定账号的歌单都归它）
     </div>
-    <div style="display:flex;gap:8px;margin:6px 0 14px;padding:10px;background:var(--paper-3);border:1px solid var(--rule)">
-      <input id="newAcctUser" placeholder="新账号用户名" style="flex:1">
-      <input id="newAcctPass" type="password" placeholder="密码" style="flex:1">
-      <button id="newAcctBtn" class="primary">在 Navidrome 里创建</button>
+    <div class="acctnew">
+      <input id="newAcctUser" placeholder="新账号用户名" style="flex:1 1 140px;min-width:0">
+      <input id="newAcctPass" type="password" placeholder="密码" style="flex:1 1 140px;min-width:0">
+      <button id="newAcctBtn" class="primary">创建账号</button>
     </div>
     <div id="acctRows">
       ${(d.accounts||[]).map(a=>rowHtml(a.username,'',false)).join('')}

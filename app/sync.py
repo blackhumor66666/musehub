@@ -16,6 +16,7 @@
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
@@ -807,7 +808,13 @@ class SyncEngine:
             "SELECT payload FROM actions WHERE kind='unfavorite' AND provider=? "
             "AND state IN ('queued','running','failed')", (provider,)
         ):
-            if str((a["payload"] or {}).get("remote_id")) == str(remote_id):
+            payload = a["payload"]
+            if isinstance(payload, str):        # 数据库里存的是 JSON 文本
+                try:
+                    payload = json.loads(payload or "{}")
+                except ValueError:
+                    payload = {}
+            if str((payload or {}).get("remote_id")) == str(remote_id):
                 return True
         return False
 
