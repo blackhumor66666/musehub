@@ -673,6 +673,11 @@ class SyncEngine:
         return stats
 
     def _download_one(self, row: dict) -> tuple[bool, str]:
+        # 用户手动删过、平台侧还没取消收藏的歌: 不再重复下载
+        if (row["provider"], str(row["remote_id"])) in self.db.blocked_set():
+            self.db.execute("UPDATE tracks SET status='ignored', updated_at=? WHERE id=?",
+                            (now_iso(), row["id"]))
+            return False, "已忽略(手动删除过, 平台仍收藏)"
         provider = self.provider_for(row["provider"], row.get("account") or "")
         if provider is None:
             return False, f"未知平台 {row['provider']}"
@@ -806,7 +811,7 @@ class SyncEngine:
         """该曲还有没发出去的取消收藏动作时不复活, 避免下载/删除来回震荡."""
         for a in self.db.query(
             "SELECT payload FROM actions WHERE kind='unfavorite' AND provider=? "
-            "AND state IN ('queued','running','failed')", (provider,)
+            "AND state IN ('queued','running','failed','ignored')", (provider,)
         ):
             payload = a["payload"]
             if isinstance(payload, str):        # 数据库里存的是 JSON 文本
@@ -1115,6 +1120,10 @@ class SyncEngine:
                             (now_iso(), r["id"]))
             if not self.cfg.sync.push_unfavorite:
                 continue
+            self.db.block_track(r["provider"], r["remote_id"], r["title"],
+                                "面板手动删除")
+            if r["provider"] not in self.providers:
+                continue      # 本地文件没有平台账号, 无需回推
             accounts = [x["account"] or "" for x in self.db.query(
                 """SELECT DISTINCT p.account FROM playlist_items pi
                    JOIN playlists p ON p.id = pi.playlist_id

@@ -100,6 +100,15 @@ CREATE TABLE IF NOT EXISTS events (
     meta    TEXT NOT NULL DEFAULT '{}'
 );
 CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts DESC);
+-- 手动删过的歌: 平台侧还没取消收藏时, 后续同步不要再下回来
+CREATE TABLE IF NOT EXISTS blocked_tracks (
+    provider   TEXT NOT NULL,
+    remote_id  TEXT NOT NULL,
+    title      TEXT NOT NULL DEFAULT '',
+    reason     TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (provider, remote_id)
+);
 -- 一个歌单可以镜像给多个播放器账号, 每个账号一条镜像记录
 CREATE TABLE IF NOT EXISTS playlist_mirrors (
     playlist_id  INTEGER NOT NULL,
@@ -248,6 +257,23 @@ class Database:
             "INSERT INTO kv(key, value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
             (key, value),
         )
+
+    # ---------- 删除黑名单 ----------
+    def block_track(self, provider: str, remote_id: str, title: str = "", reason: str = "") -> None:
+        if not provider or not remote_id:
+            return
+        self.execute(
+            """INSERT INTO blocked_tracks(provider, remote_id, title, reason, created_at)
+               VALUES(?,?,?,?,?) ON CONFLICT(provider, remote_id) DO UPDATE SET
+                 title=excluded.title, reason=excluded.reason""",
+            (provider, str(remote_id), title[:200], reason[:200], now_iso()))
+
+    def blocked_set(self) -> set[tuple[str, str]]:
+        return {(r["provider"], str(r["remote_id"]))
+                for r in self.query("SELECT provider, remote_id FROM blocked_tracks")}
+
+    def unblock_all(self) -> int:
+        return int(self.execute("DELETE FROM blocked_tracks").rowcount or 0)
 
     # ---------- 体检忽略清单 ----------
     def ignore_items(self, kind: str, track_ids: Iterable[int]) -> int:

@@ -673,6 +673,18 @@ def create_app(ctx: Context) -> FastAPI:
     # ---------- 音质洗版: 有损清单 + 一键升级 ----------
     _qual: dict = {"running": False, "progress": {}, "error": "", "result": None}
 
+    @app.get("/api/blocked")
+    def blocked_list(_: None = Depends(auth)) -> JSONResponse:
+        rows = [dict(r) for r in ctx.db.query(
+            "SELECT provider, remote_id, title, reason, created_at "
+            "FROM blocked_tracks ORDER BY created_at DESC")]
+        return JSONResponse({"total": len(rows), "items": rows})
+
+    @app.delete("/api/blocked")
+    def blocked_clear(_: None = Depends(auth)) -> JSONResponse:
+        """清空删除黑名单: 之后这些歌会被重新同步下载."""
+        return JSONResponse({"ok": True, "cleared": ctx.db.unblock_all()})
+
     @app.get("/api/quality/lossy")
     def quality_lossy(_: None = Depends(auth)) -> JSONResponse:
         from ..quality import label as qlabel

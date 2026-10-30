@@ -118,7 +118,9 @@ Field("netease.max_quality", "platform", "网易云下载音质上限", "quality
       options=NETEASE_LEVELS)
 
 Field("qq.cookie", "platform", "QQ 音乐 Cookie", "cookie",
-      "浏览器登录 y.qq.com 后复制整行 Cookie。**填带绿钻的账号**；公开歌单免登录可读。",
+      "浏览器登录 y.qq.com 后复制整行 Cookie。**填带绿钻的账号**；公开歌单免登录可读。<br>"
+      "⚠️ 用<b>微信扫码</b>登录的 Cookie 没有 skey，只能读歌单/下歌，<b>无法自动取消收藏</b>；"
+      "换成 <b>QQ 号密码登录</b> 再复制一次 Cookie，就能自动取消收藏了。",
       placeholder="pgv_pvid=...; qm_keyst=...")
 Field("qq.uin", "platform", "QQ 号", "text",
       "一般能从 Cookie 自动解析, 不用填。", hidden=True)
