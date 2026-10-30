@@ -333,6 +333,7 @@ tr:last-child td{border-bottom:none}
   justify-content:center;z-index:90;padding:20px;backdrop-filter:blur(2px)}
 .modal.open,.modal.show{display:flex;animation:fade .22s ease-out both}
 @keyframes fade{from{opacity:0}to{opacity:1}}
+.modal .box.wide{width:min(1040px,96vw);max-height:90vh}
 .modal .box{
   background:var(--paper-2);border:1px solid var(--ink);border-radius:3px;
   width:min(520px,100%);max-height:86vh;overflow:auto;box-shadow:0 24px 60px rgba(23,20,15,.28);
@@ -466,8 +467,13 @@ async function api(path, opts){
   if(!res.ok){ let m=res.status; try{const j=await res.json(); m=j.error||j.detail||m;}catch(e){} throw new Error(m); }
   return res.json();
 }
-function openModal(title, html){ $('modalTitle').textContent=title; $('modalBody').innerHTML=html;
-  $('modal').classList.add('open'); }
+function openModal(title, html, opts){
+  $('modalTitle').textContent = title;
+  $('modalBody').innerHTML = html;
+  const box = $('modal').querySelector('.box');
+  box.classList.toggle('wide', !!(opts && opts.wide));
+  $('modal').classList.add('open');
+}
 function closeModal(){ $('modal').classList.remove('open'); }
 /* 页面内确认框(替代浏览器原生 confirm): 用法 await askConfirm(标题, 内容, {okText, danger}) */
 function askConfirm(title, html, opts){
@@ -548,7 +554,6 @@ const NAV = [
   {cap:'主菜单'},
   {id:'dashboard', ic:'grid', t:'仪表盘'},
   {id:'downloads', ic:'cloud', t:'下载任务'},
-  {id:'playlists', ic:'list', t:'歌单同步'},
   {id:'subscriptions', ic:'rss', t:'歌单订阅'},
   {id:'library', ic:'disc', t:'曲库统计'},
   {id:'repair', ic:'check', t:'库体检'},
@@ -566,7 +571,8 @@ function clearPoll(){ if(pollTimer){ clearInterval(pollTimer); pollTimer=null; }
 function setActs(html){ $('pageActs').innerHTML = html || ''; }
 function render(){
   clearPoll();
-  const r = curRoute();
+  let r = curRoute();
+  if(r === 'playlists'){ location.hash = '#/subscriptions'; return; }   // 页面已合并
   document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('on', a.dataset.id === r));
   const p = PAGES[r];
   $('pageTitle').textContent = p.title; $('pageSub').textContent = p.sub || '';
@@ -707,7 +713,7 @@ PAGES.dashboard = { title:'仪表盘', sub:'系统总览：曲库、同步与下
     <div class="grid g2" style="margin-top:0">
       <div class="card">
         <div class="chd"><div><h2 class="ct">最近同步</h2><div class="ct-sub">按歌单的下载进度</div></div>
-          <a class="more" href="#/playlists">查看全部 →</a></div>
+          <a class="more" href="#/subscriptions">查看全部 →</a></div>
         ${d.recent_syncs.length ? `<table><thead><tr><th>歌单</th><th>进度</th><th style="width:90px">同步时间</th></tr></thead>
           <tbody>${d.recent_syncs.map(p=>`
             <tr><td><div class="t-main">${cover(p.cover)}
@@ -808,33 +814,22 @@ async function loadDownloads(){
     `&status=${encodeURIComponent(state.dl.status)}&page=${state.dl.page}`);
   const s = d.summary, live = d.live;
   const el = $('page');
+  // 只有"静态部分"变了才重绘整页, 否则每 2.5 秒重建一次表格会让页面闪、滚动条归位
+  const staticSig = JSON.stringify([s.ok_today, s.fail_today, s.bytes_today, s.rate,
+    d.total, (d.items || []).length, state.dl.page, state.dl.provider, state.dl.status]);
   // 注意: 不能用 dataset 标记"已构建" —— 切走页面后 innerHTML 会被重置,
   // 标记却还在, 回来时找不到子元素就 null.innerHTML 报错(真踩过)
-  if(!el.querySelector('#liveBox')){
+  const needFull = !el.querySelector('#liveBox') || el.dataset.staticSig !== staticSig;
+  if(needFull){
+    el.dataset.staticSig = staticSig;
     el.innerHTML = `
       <div class="card" style="margin-bottom:14px" id="liveBox"></div>
       <div class="grid g4" id="dlStats"></div>
       <div class="grid g2" id="dlCharts"></div>
       <div class="card" id="dlHist"></div>`;
   }
-  $('liveBox').innerHTML = `
-    <div class="chd"><div><h2 class="ct">正在下载</h2><div class="ct-sub">LIVE QUEUE · 实时刷新</div></div>
-      <span class="muted" style="font-size:12.5px">${live.count} 个任务</span></div>
-    ${live.active.length ? live.active.map(j=>{
-      const pct = j.total ? Math.round(j.downloaded*100/j.total) : 0;
-      return `<div class="live-row">${pBadge(j.provider)}
-        <div style="min-width:0;flex:1"><div class="t-name" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
-          ${esc(j.title)}</div><div class="t-sub">${esc(j.artists)}</div></div>
-        <div class="live-bar">${hBar(pct)}</div>
-        <div class="live-meta num">${statusBadge(j.state)} ${fmtSize(j.downloaded)}${j.total?' / '+fmtSize(j.total):''}</div>
-      </div>`;}).join('')
-      : live.recent.length ? `<div class="t-sub" style="margin-bottom:6px">刚完成：</div>` +
-        live.recent.slice(0,3).map(j=>`
-        <div class="live-row">${pBadge(j.provider)}<div style="flex:1;min-width:0">
-          <div class="t-name">${esc(j.title)}</div><div class="t-sub">${esc(j.artists)}</div></div>
-          <div class="live-meta">${statusBadge(j.state)}</div></div>`).join('')
-      : `<div class="empty" style="padding:8px 0">✓ 当前没有进行中的任务</div>`}`;
-
+  renderLive(live);
+  if(!needFull) return;
   $('dlStats').innerHTML = [
     ['今日成功', s.ok_today, 'cloud','var(--ink)','transparent'],
     ['今日失败', s.fail_today, 'cloud','#ef4444','#fdeceb'],
@@ -889,77 +884,30 @@ async function loadDownloads(){
   $('pgNext').onclick = () => { state.dl.page++; loadDownloads(); };
 }
 
+/* 实时队列单独渲染: 每 2.5 秒只更新这一块, 不动统计/表格 */
+function renderLive(live){
+  const box = $('liveBox'); if(!box) return;
+  box.innerHTML = `
+    <div class="chd"><div><h2 class="ct">正在下载</h2><div class="ct-sub">LIVE QUEUE · 实时刷新</div></div>
+      <span class="muted" style="font-size:12.5px">${live.count} 个任务</span></div>
+    ${live.active.length ? live.active.map(j=>{
+      const pct = j.total ? Math.round(j.downloaded*100/j.total) : 0;
+      return `<div class="live-row">${pBadge(j.provider)}
+        <div style="min-width:0;flex:1"><div class="t-name" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">
+          ${esc(j.title)}</div><div class="t-sub">${esc(j.artists)}</div></div>
+        <div class="live-bar">${hBar(pct)}</div>
+        <div class="live-meta num">${statusBadge(j.state)} ${fmtSize(j.downloaded)}${j.total?' / '+fmtSize(j.total):''}</div>
+      </div>`;}).join('')
+      : live.recent.length ? `<div class="t-sub" style="margin-bottom:6px">刚完成：</div>` +
+        live.recent.slice(0,3).map(j=>`
+        <div class="live-row">${pBadge(j.provider)}<div style="flex:1;min-width:0">
+          <div class="t-name">${esc(j.title)}</div><div class="t-sub">${esc(j.artists)}</div></div>
+          <div class="live-meta">${statusBadge(j.state)}</div></div>`).join('')
+      : `<div class="empty" style="padding:8px 0">✓ 当前没有进行中的任务</div>`}`;
+}
+
 /* ================= 页面: 歌单同步 ================= */
 function s2(n){ return (n||0).toLocaleString(); }
-PAGES.playlists = { title:'歌单同步', sub:'平台歌单到本地音乐库的对应进度', async render(){
-  const [st, lib] = await Promise.all([api('/api/status'), api('/api/library')]);
-  const rows = (st.playlist_rows || []).filter(p => p.subscribed || (p.items||0) > 0);
-  const totalTr = rows.reduce((a,p)=>a+(p.items||p.track_count||0),0);
-  $('page').innerHTML = `
-    <div class="grid g3">
-      <div class="card stat" style="--c:var(--ink);--c-soft:transparent"><div class="row">
-        <div><div class="k">订阅歌单</div><div class="v num">${s2(rows.filter(p=>p.subscribed).length)}</div><div class="h">个</div></div>
-        <div class="bub">${icon('rss')}</div></div></div>
-      <div class="card stat" style="--c:var(--accent);--c-soft:var(--accent-soft)"><div class="row">
-        <div><div class="k">歌单曲目</div><div class="v num">${s2(totalTr)}</div><div class="h">首</div></div>
-        <div class="bub">${icon('list')}</div></div></div>
-      <div class="card stat" style="--c:var(--ink);--c-soft:transparent"><div class="row">
-        <div><div class="k">本地文件</div><div class="v num">${s2(lib.files)}</div>
-          <div class="h">已入库 ${s2(st.stats.tracks_active)} 条记录</div></div>
-        <div class="bub">${icon('disc')}</div></div></div>
-    </div>
-    <div class="card"><div class="chd"><div><h2 class="ct">歌单列表</h2><div class="ct-sub">点「详情」查看每首歌的下载状态</div></div></div>
-    <div id="plTable"></div></div>
-    <div class="card" style="margin-top:14px">
-      <div class="chd">
-        <div class="chd-main">
-          <h2 class="ct">重复曲目 / 洗版</h2>
-          <div class="hd-tags">
-            <span class="pill tight" id="dupPill">尚未扫描</span>
-            <span class="pill tight" id="trashPill">回收站 · 读取中</span>
-          </div>
-        </div>
-        <div class="chd-acts">
-          <button class="sm" id="dupScan">${icon('search')}扫描重复</button>
-          <button class="sm primary" id="dupUpgrade">${icon('refresh')}一键洗版</button>
-          <button class="sm danger" id="trashTop" disabled>${icon('trash')}清空回收站</button>
-        </div>
-      </div>
-      <details class="hint">
-        <summary>洗版规则与风险</summary>
-        <div class="hint-body">
-          <b>什么算重复</b>：歌名 + 主艺人相同即视为同一首。<br>
-          <b>洗版做什么</b>：每组只留音质最好的文件（按真实位深 / 采样率 / 码率评判，不看文件名），
-          差的移入 <span class="mono">.musehub_trash</span> 回收目录，可找回、可一键清空。<br>
-          <b>不会影响什么</b>：平台收藏和歌单完全不动，只是本地少一份文件。<br>
-          <b>注意</b>：不同专辑里的同一首歌也会被列出。洗版后，差版本所在的那张专辑会缺这首歌。
-        </div>
-      </details>
-      <div class="flash" id="dupFlash"></div>
-      <div id="dupBody"><div class="empty"><span class="e-ic">≡</span>点「扫描重复」检查曲库</div></div>
-    </div>`;
-  renderPlTable(rows);
-  /* 头部按钮: 三个都要绑, 之前 trashTop 漏绑 -> 点了完全没反应 */
-  $('dupScan').onclick = () => scanDuplicates();
-  $('dupUpgrade').onclick = upgradeAll;
-  $('trashTop').onclick = emptyTrash;
-  loadTrashPill();
-  setActs(`<button id="ndSync">${icon('play')}同步到播放器</button>
-    <button class="primary" id="plSync">${icon('refresh')}立即同步</button>`);
-  $('plSync').onclick = async () => {
-    const r = await api('/api/sync', {method:'POST'});
-    toast(r.started ? '同步已开始, 可到「下载任务」看进度' : '已在同步中');
-  };
-  $('ndSync').onclick = async (ev) => {
-    const btn = ev.currentTarget; btn.disabled = true;
-    try{
-      const r = await api('/api/navidrome/sync', {method:'POST'});
-      toast(r.started ? '正在把歌单推到 Navidrome，稍后看「运行日志」' : (r.error || '未能开始'));
-    }catch(e){ toast('失败: ' + e.message); }
-    finally{ setTimeout(()=>{ btn.disabled = false; }, 3000); }
-  };
-}};
-
 /* ---------- 重复/洗版 页的交互小工具 ---------- */
 function busyBtn(btn, label){
   if(!btn) return ()=>{};
@@ -1168,19 +1116,25 @@ async function showPlaylistDetail(id){
       <td class="td-right">${t.status==='active'
         ? `<button data-deli="${i}" style="font-size:12px;padding:3px 9px;color:#d23c31">删除</button>` : ''}</td>
     </tr>`).join('')}
-    </tbody></table>`);
+    </tbody></table>`, {wide:true});
 
   $('modalBody').querySelectorAll('[data-deli]').forEach(btn => btn.onclick = async () => {
     const t = d.tracks[+btn.dataset.deli];
     const name = `${t.artists} - ${t.title}`;
     if(!await askConfirm(`删除《${esc(name)}》？`,
-      `会同时<b>删掉本地文件</b>，并在网易云/QQ 取消收藏。<br><b>此操作无法恢复。</b>`,
+      `会<b>删掉本地文件</b>，并尝试在 ${pBadge(t.provider)} 取消收藏。<br>
+       <span class="muted">QQ 音乐已不支持自动取消收藏，如果这首在 QQ 上也收藏过，需要你去 App 里手动取消。</span><br>
+       <b>本地文件删除后不可恢复。</b>`,
       {okText:'删除', danger:true})) return;
     btn.disabled = true; btn.textContent = '删除中…';
     try{
       const r = await api(`/api/tracks/${t.id}/delete`, {method:'POST'});
-      toast(r.queued ? `已删除，并取消 ${r.queued} 个平台收藏` : '已删除');
-      showPlaylistDetail(id);
+      const plat = (r.platforms || []).map(x => x === 'qq' ? 'QQ音乐' : '网易云');
+      toast(plat.length
+        ? `已删除本地文件，正在取消 ${plat.join('、')} 的收藏（失败会进待处理）`
+        : '已删除本地文件');
+      const tr = btn.closest('tr');
+      if(tr){ tr.style.opacity = '.35'; setTimeout(() => tr.remove(), 250); }
     }catch(e){
       toast('删除失败: ' + e.message);
       btn.disabled = false; btn.textContent = '删除';
@@ -1231,13 +1185,18 @@ async function loadSubs(){
   const st = await api('/api/status');
   const rows = st.playlist_rows || [];
   const nda = await api('/api/ndaccounts').catch(()=>({default:'', accounts:[]}));
-  const acctOpts = (p) => {
-    const cur = p.mirror_account || '';
-    const all = [{u: nda.default || '默认账号', v: ''}].concat(
-      (nda.accounts||[]).filter(a=>a.username !== nda.default)
-        .map(a=>({u: a.username, v: a.username})));
-    return `<select data-acct="${p.id}" style="max-width:120px">${all.map(o=>
-      `<option value="${esc(o.v)}"${o.v===cur?' selected':''}>${esc(o.u)}</option>`).join('')}</select>`;
+  const ND_ALL = [{u: nda.default || '默认账号', v: ''}].concat(
+    (nda.accounts||[]).filter(a=>a.username !== nda.default)
+      .map(a=>({u: a.username, v: a.username})));
+  const acctCell = (p) => {
+    const cur = (p.mirror_account || '').split(',').filter(Boolean);
+    const name = v => (ND_ALL.find(o=>o.v===v)||{u:v}).u;
+    const label = cur.length
+      ? cur.map(name).join(' + ')
+      : (nda.default || '默认账号');
+    const extra = cur.length > 1 ? ` <span class="muted">(${cur.length})</span>` : '';
+    return `<button class="sm ghost" data-acct="${p.id}" style="max-width:150px;overflow:hidden;
+      text-overflow:ellipsis;white-space:nowrap" title="点这里分配可见账号">${esc(label)}${extra}</button>`;
   };
   $('subList').innerHTML = rows.length ? `<table><thead><tr><th>名称</th>
       <th style="width:70px">类型</th><th style="width:90px">平台</th><th style="width:80px">曲目</th>
@@ -1248,25 +1207,45 @@ async function loadSubs(){
         <div class="t-sub">ID: ${esc(p.remote_id)}</div></div></div></td>
       <td>${kindBadge(p.kind)}</td>
       <td>${pBadge(p.provider)}</td><td class="num">${p.items || p.track_count || 0}</td>
-      <td>${acctOpts(p)}</td>
+      <td>${acctCell(p)}</td>
       <td>${p.subscribed?'<span class="badge ok">订阅中</span>':'<span class="badge">已暂停</span>'}</td>
-      <td class="td-right"><button data-rename="${p.id}">改名</button>
+      <td class="td-right"><button data-detail="${p.id}">详情</button>
+        <button data-rename="${p.id}">改名</button>
         <button data-toggle="${p.id}">${p.subscribed?'暂停':'恢复'}</button>
         <button class="danger" data-del="${p.id}">移除</button></td></tr>`).join('')}
     </tbody></table>` : '<div class="empty"><span class="e-ic">≡</span>还没有订阅，在上面粘贴歌单链接试试</div>';
-  $('subList').querySelectorAll('[data-acct]').forEach(sel => sel.onchange = async () => {
-    const v = sel.value;
-    const label = v || '默认账号';
-    if(!await askConfirm('切换播放器账号？',
-      `该歌单的镜像会重建到 <b>${esc(label)}</b> 名下，旧账号里的那份会被删除。<br>
-       <span style="color:var(--muted)">Navidrome 的私有歌单只有创建者看得见，所以换账号=换谁能看到。</span>`,
-      {okText:'切换'})){ loadSubs(); return; }
-    try{
-      await api(`/api/playlists/${sel.dataset.acct}/mirror-account`,
-        {method:'POST', body: JSON.stringify({account: v})});
-      toast('已切换，下次同步时重建到新账号');
-      loadSubs();
-    }catch(e){ toast('失败: ' + e.message); loadSubs(); }
+  $('subList').querySelectorAll('[data-detail]').forEach(b => b.onclick = () =>
+    showPlaylistDetail(b.dataset.detail));
+  $('subList').querySelectorAll('[data-acct]').forEach(btn => btn.onclick = () => {
+    const p = rows.find(x => String(x.id) === btn.dataset.acct);
+    if(!p) return;
+    const cur = (p.mirror_account || '').split(',').filter(Boolean);
+    openModal('分配播放器账号', `
+      <div style="font-size:12.5px;line-height:1.8;color:var(--ink-2)">
+        勾选几个账号，这个歌单就会在它们各自的播放器里出现。<br>
+        <span class="muted">Navidrome 的私有歌单只有创建者看得见 —— 所以"给谁看"就是"用谁的身份建"。
+        默认账号 = 面板里配置的那个 Navidrome 用户（能看全部）。</span>
+      </div>
+      <div style="margin:14px 0;display:flex;flex-direction:column;gap:8px">
+        ${ND_ALL.map(o=>`<label class="check" style="gap:10px">
+          <input type="checkbox" value="${esc(o.v)}" ${cur.includes(o.v)?'checked':''}>
+          <span>${esc(o.u)}${o.v?'':' <span class="muted">(默认)</span>'}</span></label>`).join('')}
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:8px">
+        <button id="acctCancel">取消</button><button id="acctOk" class="primary">保存</button>
+      </div>`);
+    $('acctCancel').onclick = closeModal;
+    $('acctOk').onclick = async () => {
+      const picked = [...$('modalBody').querySelectorAll('input[type=checkbox]:checked')]
+        .map(x => x.value);
+      if(!picked.length) picked.push('');
+      try{
+        await api(`/api/playlists/${p.id}/mirror-account`,
+          {method:'POST', body: JSON.stringify({accounts: picked})});
+        toast('已保存，下次同步时按新账号重建');
+        closeModal(); loadSubs();
+      }catch(e){ toast('失败: ' + e.message); }
+    };
   });
   $('subList').querySelectorAll('[data-rename]').forEach(b => b.onclick = () => {
     const row = rows.find(p => String(p.id) === b.dataset.rename);
@@ -1465,12 +1444,17 @@ PAGES.repair = { title:'库体检', sub:'元数据、封面、歌词一次检测
       <div class="chd">
         <div class="chd-main">
           <h2 class="ct">音质升级</h2>
-          <div class="ct-sub">有损曲目按最高档重下，只替换真的更好的；旧文件进回收目录</div>
+          <div class="ct-sub">有损曲目重下到指定档位，只替换真的更好的；旧文件进回收目录</div>
           <div class="hd-tags"><span class="pill tight" id="qlPill">统计中…</span></div>
         </div>
         <div class="chd-acts">
+          <select id="qlTarget" style="padding:6px 9px;font-size:12.5px">
+            <option value="lossless">升到 无损</option>
+            <option value="exhigh">升到 极高(320k)</option>
+            <option value="m800">升到 320k</option>
+          </select>
           <button class="sm" id="qlRefresh">${icon('refresh')}刷新清单</button>
-          <button class="sm primary" id="qlUpgradeAll">${icon('cloud')}一键洗版</button>
+          <button class="sm primary" id="qlUpgradeAll">${icon('cloud')}一键升级</button>
         </div>
       </div>
       <div class="flash" id="qlFlash"></div>
@@ -1479,6 +1463,34 @@ PAGES.repair = { title:'库体检', sub:'元数据、封面、歌词一次检测
         <div class="muted mono" id="qlProgText" style="font-size:11.5px;margin-top:7px">准备中…</div>
       </div>
       <div id="qlBody"></div>
+    <div class="card">
+      <div class="chd">
+        <div class="chd-main">
+          <h2 class="ct">重复文件（去重）</h2>
+          <div class="hd-tags">
+            <span class="pill tight" id="dupPill">尚未扫描</span>
+            <span class="pill tight" id="trashPill">回收站 · 读取中</span>
+          </div>
+        </div>
+        <div class="chd-acts">
+          <button class="sm" id="dupScan">${icon('search')}扫描重复</button>
+          <button class="sm primary" id="dupUpgrade">${icon('refresh')}一键去重</button>
+          <button class="sm danger" id="trashTop" disabled>${icon('trash')}清空回收站</button>
+        </div>
+      </div>
+      <details class="hint">
+        <summary>去重规则与风险</summary>
+        <div class="hint-body">
+          <b>什么算重复</b>：歌名 + 主艺人相同即视为同一首。<br>
+          <b>去重做什么</b>：每组只留音质最好的文件（按真实位深 / 采样率 / 码率评判，不看文件名），
+          差的移入 <span class="mono">.musehub_trash</span> 回收目录，可找回、可一键清空。<br>
+          <b>不会影响什么</b>：平台收藏和歌单完全不动，只是本地少一份文件。<br>
+          <b>注意</b>：不同专辑里的同一首歌也会被列出。去重后，差版本所在的那张专辑会缺这首歌。
+        </div>
+      </details>
+      <div class="flash" id="dupFlash"></div>
+      <div id="dupBody"><div class="empty"><span class="e-ic">≡</span>点「扫描重复」检查曲库</div></div>
+    </div>
     </div>`;
   setActs(`<button class="sm" id="rpUnignore">恢复忽略</button>`);
   $('rpUnignore').onclick = async () => {
@@ -1489,10 +1501,18 @@ PAGES.repair = { title:'库体检', sub:'元数据、封面、歌词一次检测
   };
   $('rpScan').onclick = () => doRepairScan(true);
   $('rpFixAll').onclick = () => doRepairFixAll();
+  $('qlTarget').onchange = () => { try{ localStorage.setItem('ql_target', $('qlTarget').value); }catch(e){} };
+  try{ const t = localStorage.getItem('ql_target');
+       if(t && $('qlTarget')) $('qlTarget').value = t; }catch(e){}
   $('qlRefresh').onclick = () => loadQuality(true);
   $('qlUpgradeAll').onclick = () => doQualityUpgrade(null);
   await refreshRepair(true);
   await loadQuality(false);
+
+  $('dupScan').onclick = scanDuplicates;
+  $('dupUpgrade').onclick = upgradeAll;
+  $('trashTop').onclick = emptyTrash;
+  loadTrashPill();
 }};
 
 function rpFlash(msg, kind = 'info'){
@@ -1732,23 +1752,25 @@ async function loadQuality(verbose){
         <span style="flex:1 1 220px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
           <b>${esc(t.title)}</b> <span class="muted">— ${esc(t.artists)}</span></span>
         <span class="muted mono" style="font-size:11px">${esc(t.ext || '')}</span>
-        <button class="sm ghost" data-up="${t.id}">洗版</button>
+        <button class="sm ghost" data-up="${t.id}">升级</button>
       </div>`).join('')}
     </div>`;
   box.querySelectorAll('[data-up]').forEach(btn => btn.onclick = () =>
     doQualityUpgrade([Number(btn.dataset.up)]));
 }
 async function doQualityUpgrade(ids){
+  const target = ($('qlTarget') && $('qlTarget').value) || 'lossless';
+  const tlabel = ({lossless:'无损', exhigh:'极高(320k)', m800:'320k'})[target] || target;
   const n = ids ? ids.length : QL_ITEMS.length;
   if(!n){ toast('没有需要洗版的曲目'); return; }
-  if(!await askConfirm(ids ? '洗版这一首？' : '一键洗版全部有损曲目？',
-    `${ids ? '' : `共 <b>${n}</b> 首，`}按当前音质上限重新下载，<b>只有真的更好的才会替换</b>；<br>
+  if(!await askConfirm(ids ? `把这首升到 ${tlabel}？` : `把全部 ${n} 首升到 ${tlabel}？`,
+    `按 <b>${tlabel}</b> 重新下载，<b>只有比现在更好的才会替换</b>（已经是这个档位的会跳过）；<br>
      旧文件按删除策略处理（默认进回收目录，可找回）。<br>
      <span style="color:var(--muted)">下载量大时耗时较长，可以离开这个页面。</span>`,
     {okText:'开始洗版'})) return;
   try{
     await api('/api/quality/upgrade', {method:'POST',
-      body: JSON.stringify(ids ? {ids} : {})});
+      body: JSON.stringify(ids ? {ids, quality: target} : {quality: target})});
   }catch(e){ qlFlash('启动失败：' + e.message, 'bad'); return; }
   qlFlash('正在洗版…', 'busy');
   const started = Date.now();

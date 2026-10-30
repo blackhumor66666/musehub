@@ -38,7 +38,7 @@ class TestSettings(unittest.TestCase):
                                "sync", "organizer", "web"])
         keys = {f["key"] for g in data["groups"] for f in g["fields"]}
         # 旧的单账号 Cookie 已合并进「多账号」, 不再下发到面板
-        for k in ("netease.accounts", "qq.accounts", "navidrome.url", "telegram.token",
+        for k in ("netease.cookie", "qq.cookie", "navidrome.url", "telegram.token",
                   "sync.dry_run", "sync.delete_policy", "organizer.album_template",
                   "notify.enabled", "notify.webhook_url", "notify.quiet_hours"):
             self.assertIn(k, keys)
@@ -103,36 +103,30 @@ class TestSettings(unittest.TestCase):
         self.assertEqual(qq.favorite_playlist_id(), "987654")
 
 
-    def test_legacy_cookie_field_syncs_into_accounts(self) -> None:
-        """旧「QQ Cookie」框和多账号列表必须同步: 只认多账号, 否则粘了不生效."""
+    def test_accounts_are_merged_into_single_cookie(self) -> None:
+        """多账号退役: 列表里的第一个 Cookie 合并进单字段, 列表清空."""
         db = self.ctx.db
-        S.save(self.ctx.cfg, db, {"qq.accounts": "默认=old_cookie_value"})
-        # 用户把新 Cookie 粘到旧的单账号框
-        S.save(self.ctx.cfg, db, {"qq.cookie": "new_cookie_value"})
-        accs = S.parse_accounts(db.kv_get("cfg:qq.accounts", ""))
-        self.assertEqual(accs[0][0], "默认")
-        self.assertEqual(accs[0][1], "new_cookie_value", f"多账号没有跟着更新: {accs}")
-        self.assertEqual(self.ctx.cfg.qq.accounts[0][1], "new_cookie_value")
+        db.kv_set("cfg:qq.accounts", "默认=pgv_pvid=1; qm_keyst=K")
+        S.load_into(self.ctx.cfg, db)
+        self.assertEqual(db.kv_get("cfg:qq.cookie", ""), "pgv_pvid=1; qm_keyst=K")
+        self.assertEqual(db.kv_get("cfg:qq.accounts", ""), "", "合并后应清空多账号")
+        self.assertEqual(self.ctx.cfg.qq.cookie, "pgv_pvid=1; qm_keyst=K")
+        self.assertEqual(self.ctx.cfg.qq.accounts, [])
 
-    def test_accounts_field_syncs_back_to_cookie(self) -> None:
-        db = self.ctx.db
-        S.save(self.ctx.cfg, db, {"qq.accounts": "默认=from_accounts"})
-        self.assertEqual(db.kv_get("cfg:qq.cookie", ""), "from_accounts")
-
-    def test_legacy_only_cookie_is_migrated(self) -> None:
-        """老库里只有单账号 Cookie 时, 启动要自动补成多账号."""
+    def test_single_cookie_is_used_directly(self) -> None:
+        """只填一个 Cookie 就能用(不需要再维护账号列表)."""
         db = self.ctx.db
         db.kv_set("cfg:netease.cookie", "MUSIC_U=legacy")
         S.load_into(self.ctx.cfg, db)
-        accs = S.parse_accounts(db.kv_get("cfg:netease.accounts", ""))
-        self.assertTrue(accs, "没有自动迁移成多账号")
-        self.assertEqual(accs[0][1], "MUSIC_U=legacy")
+        self.assertEqual(self.ctx.cfg.netease.cookie, "MUSIC_U=legacy")
+        self.assertEqual(self.ctx.cfg.netease.accounts, [])
 
     def test_hidden_fields_not_in_schema(self) -> None:
         data = S.schema(self.ctx.cfg, self.ctx.db)
         keys = [f["key"] for g in data["groups"] for f in g["fields"]]
-        self.assertNotIn("qq.cookie", keys, "旧的单账号 Cookie 不该再出现在面板上")
-        self.assertIn("qq.accounts", keys)
+        self.assertIn("qq.cookie", keys, "现在只保留单 Cookie 入口")
+        self.assertNotIn("qq.accounts", keys, "多账号已合并, 不该再出现在面板上")
+        self.assertNotIn("qq.download_account", keys, "下载账号已去掉")
 
 
     def test_raw_cookie_line_is_not_split(self) -> None:
@@ -150,13 +144,12 @@ class TestSettings(unittest.TestCase):
         self.assertEqual(accs[0][1], "MUSIC_U=deadbeef; __csrf=abc")
 
     def test_legacy_split_account_is_normalized(self) -> None:
-        """老数据(账号名=pgv_pvid)启动时要自动纠正成 默认=整行Cookie."""
+        """老数据(账号名=pgv_pvid)合并进单 Cookie 时要还原成完整 Cookie."""
         db = self.ctx.db
-        db.kv_set("cfg:qq.accounts", "默认=pgv_pvid=2423591868; qm_keyst=K")
+        db.kv_set("cfg:qq.accounts", "pgv_pvid=2423591868; qm_keyst=K")
         S.load_into(self.ctx.cfg, db)
-        accs = S.parse_accounts(db.kv_get("cfg:qq.accounts", ""))
-        self.assertEqual(accs[0][0], "默认")
-        self.assertEqual(accs[0][1], "pgv_pvid=2423591868; qm_keyst=K")
+        self.assertEqual(db.kv_get("cfg:qq.cookie", ""),
+                         "pgv_pvid=2423591868; qm_keyst=K")
 
     def test_persist_across_restart(self) -> None:
         S.save(self.ctx.cfg, self.ctx.db, {

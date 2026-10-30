@@ -281,29 +281,43 @@ def create_app(ctx: Context) -> FastAPI:
     @app.post("/api/playlists/{row_id}/mirror-account")
     async def set_mirror_account(row_id: int, request: Request,
                                  _: None = Depends(auth)) -> JSONResponse:
-        """指定该歌单镜像到哪个播放器账号; 换账号会删掉旧账号里的镜像."""
+        """把歌单镜像给一个或多个播放器账号(逗号分隔); 移除的账号会删掉其镜像."""
         row = ctx.db.get_playlist(row_id)
         if not row:
             raise HTTPException(404, "歌单不存在")
         body = await request.json()
-        target = str(body.get("account") or "").strip()
-        old = (row.get("mirror_account") or "").strip()
-        if target == old:
-            return JSONResponse({"ok": True, "account": target, "moved": False})
-        # 删掉旧账号里的镜像(否则会留一个孤儿歌单)
-        if row["navidrome_id"]:
-            pwd = (ctx.engine.nd_accounts or {}).get(old)
+        raw = body.get("accounts", body.get("account", ""))
+        if isinstance(raw, list):
+            new_accounts = [str(x).strip() for x in raw if str(x).strip()]
+        else:
+            new_accounts = [x.strip() for x in str(raw or "").split(",") if x.strip()]
+        old_accounts = [x.strip() for x in (row.get("mirror_account") or "").split(",") if x.strip()]
+        target = ",".join(new_accounts)
+
+        # 被移除的账号: 删掉它名下的镜像, 否则会留孤儿歌单
+        for gone in set(old_accounts) - set(new_accounts):
+            mid = ctx.db.query_one(
+                "SELECT navidrome_id FROM playlist_mirrors WHERE playlist_id=? AND account=?",
+                (row_id, gone))
+            pid = (mid["navidrome_id"] if mid else (row["navidrome_id"] or ""))
+            if not pid:
+                continue
+            pwd = (ctx.engine.nd_accounts or {}).get(gone)
             try:
-                if old and old != ctx.cfg.navidrome.username and pwd:
-                    ctx.navidrome.for_account(old, pwd).delete_playlist(row["navidrome_id"])
-                elif not old:
-                    ctx.navidrome.delete_playlist(row["navidrome_id"])
+                if gone and gone != ctx.cfg.navidrome.username and pwd:
+                    ctx.navidrome.for_account(gone, pwd).delete_playlist(pid)
+                elif not gone:
+                    ctx.navidrome.delete_playlist(pid)
             except Exception as exc:  # noqa: BLE001
                 ctx.db.log("warn", "navidrome", f"删除旧镜像失败: {exc}")
+            ctx.db.execute(
+                "DELETE FROM playlist_mirrors WHERE playlist_id=? AND account=?", (row_id, gone))
+
         ctx.db.execute(
             "UPDATE playlists SET mirror_account=?, navidrome_id='', navidrome_name='' WHERE id=?",
             (target, row_id))
-        return JSONResponse({"ok": True, "account": target, "moved": True})
+        return JSONResponse({"ok": True, "accounts": new_accounts,
+                             "moved": target != ",".join(old_accounts)})
 
     @app.get("/api/dashboard")
     def dashboard(_: None = Depends(auth)) -> JSONResponse:
@@ -650,13 +664,14 @@ def create_app(ctx: Context) -> FastAPI:
         except Exception:  # noqa: BLE001
             body = {}
         ids = body.get("ids")
+        target = str(body.get("quality") or "lossless").lower()
         _qual.update(running=True, error="", result=None,
                      progress={"done": 0, "total": 0, "current": "准备中…"})
 
         def _run() -> None:
             try:
-                _qual["result"] = ctx.engine.upgrade_quality(ids=ids,
-                                                             progress=_qual["progress"])
+                _qual["result"] = ctx.engine.upgrade_quality(
+                    ids=ids, progress=_qual["progress"], target=target)
             except Exception as exc:  # noqa: BLE001
                 _qual["error"] = str(exc)[:300]
             finally:

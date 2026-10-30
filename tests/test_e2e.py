@@ -99,11 +99,10 @@ class TestSyncFlow(BaseCase):
         self.engine.run(trigger="test")
         row = self.db.find_track("netease", "101")
         self.db.execute("UPDATE tracks SET quality='m800' WHERE id=?", (row["id"],))
-        # 把音质链压到 320k, 洗版也拿不到更好的
-        self.cfg.netease.quality_chain = ("m800",)
+        # 目标就定 320k: 已经是 320k 了, 不该再动文件
         self.ne.cfg = self.cfg.netease
         before = self.db.find_track("netease", "101")
-        stats = self.engine.upgrade_quality()
+        stats = self.engine.upgrade_quality(target="m800")
         self.assertEqual(stats["upgraded"], 0, stats)
         self.assertGreaterEqual(stats["skipped"], 1, stats)
         after = self.db.find_track("netease", "101")

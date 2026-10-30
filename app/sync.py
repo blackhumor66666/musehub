@@ -1079,6 +1079,7 @@ class SyncEngine:
         removed = self.organizer.remove_track_files(target) if target.exists() else []
 
         queued = 0
+        platforms: list[str] = []
         for r in rows:
             self.db.execute("UPDATE tracks SET status='deleted', updated_at=? WHERE id=?",
                             (now_iso(), r["id"]))
@@ -1089,6 +1090,8 @@ class SyncEngine:
                    JOIN playlists p ON p.id = pi.playlist_id
                    WHERE pi.track_id = ?""", (r["id"],))] or [""]
             for acc in accounts:
+                if r["provider"] not in platforms:
+                    platforms.append(r["provider"])
                 self.db.enqueue_action("unfavorite", r["provider"], {
                     "remote_id": r["remote_id"],
                     "title": r["title"],
@@ -1108,7 +1111,8 @@ class SyncEngine:
                 self.push_actions()
             except Exception as exc:  # noqa: BLE001 - 回推失败不影响文件已删的事实
                 self.db.log("warn", "cleanup", f"删除后立即回推失败(下轮重试): {exc}")
-        return {"ok": True, "files": len(removed), "queued": queued, "path": path}
+        return {"ok": True, "files": len(removed), "queued": queued, "path": path,
+                "platforms": platforms}
 
     # ---------- 4. 回推平台 ----------
     def push_actions(self) -> dict:
@@ -1192,27 +1196,40 @@ class SyncEngine:
             # 用户改过名就用自定义名, 否则用平台歌单名
             show_name = (pl.get("display_name") or "").strip() or pl["name"]
             name = f"{self.cfg.navidrome.playlist_prefix}[{label}] {show_name}"
-            # 指定了播放器账号就用该账号身份创建(私有歌单只有 owner 看得见)
-            acct_name = (pl.get("mirror_account") or "").strip()
-            client = self.navidrome
-            if acct_name and acct_name != self.cfg.navidrome.username:
-                pwd = (getattr(self, "nd_accounts", {}) or {}).get(acct_name)
-                if not pwd:
+            # 播放器账号可以是多个(逗号分隔): 每个账号各建一份镜像,
+            # Navidrome 私有歌单只有 owner 看得见 -> 实现"同一歌单多人可见"
+            accts = [x.strip() for x in (pl.get("mirror_account") or "").split(",")
+                     if x.strip()] or [""]
+            first_id = ""
+            for k, acct_name in enumerate(accts):
+                client = self.navidrome
+                if acct_name and acct_name != self.cfg.navidrome.username:
+                    pwd = (getattr(self, "nd_accounts", {}) or {}).get(acct_name)
+                    if not pwd:
+                        self.db.log("warn", "navidrome",
+                                    f"播放器账号 {acct_name} 未配置密码, 跳过 [{name}]")
+                        continue
+                    client = self.navidrome.for_account(acct_name, pwd)
+                try:
+                    res = client.sync_playlist(name, paths, index)
+                    stats["navidrome_playlists"] += 1
+                    stats["navidrome_missing"] += int(res.get("missing", 0))
+                    pid_str = str(res.get("playlist_id", ""))
+                    first_id = first_id or pid_str
+                    self.db.execute(
+                        """INSERT INTO playlist_mirrors(playlist_id, account, navidrome_id, name)
+                           VALUES(?,?,?,?)
+                           ON CONFLICT(playlist_id, account) DO UPDATE SET
+                             navidrome_id=excluded.navidrome_id, name=excluded.name""",
+                        (pl["id"], acct_name, pid_str, name))
+                    if k == 0:
+                        self.db.execute(
+                            "UPDATE playlists SET navidrome_id=?, navidrome_name=? WHERE id=?",
+                            (pid_str, name, pl["id"]))
+                except Exception as exc:  # noqa: BLE001
+                    stats["navidrome_error"] = str(exc)[:200]
                     self.db.log("warn", "navidrome",
-                                f"播放器账号 {acct_name} 未配置密码, 跳过 [{name}]")
-                    continue
-                client = self.navidrome.for_account(acct_name, pwd)
-            try:
-                res = client.sync_playlist(name, paths, index)
-                stats["navidrome_playlists"] += 1
-                stats["navidrome_missing"] += int(res.get("missing", 0))
-                self.db.execute(
-                    "UPDATE playlists SET navidrome_id=?, navidrome_name=? WHERE id=?",
-                    (res.get("playlist_id", ""), name, pl["id"]),
-                )
-            except Exception as exc:  # noqa: BLE001
-                stats["navidrome_error"] = str(exc)[:200]
-                self.db.log("warn", "navidrome", f"歌单同步失败 [{name}]: {exc}")
+                                f"歌单同步失败 [{name}]（账号 {acct_name or '默认'}）: {exc}")
         return stats
 
     def _provider_label(self, name: str) -> str:
@@ -1235,20 +1252,31 @@ class SyncEngine:
         out.sort(key=lambda r: (rank(r["quality"]), r["artists"], r["title"]))
         return out
 
+    # 洗版目标音质 -> 允许的音质链(从高到低). 用户明确选 320k 就不要给他下无损。
+    UPGRADE_CHAIN = {
+        "lossless": ("lossless", "exhigh", "higher", "standard"),
+        "exhigh": ("exhigh", "higher", "standard"),
+        "m800": ("m800", "m500"),
+        "standard": ("standard",),
+    }
+
     def upgrade_quality(self, ids: list[int] | None = None,
-                        progress: dict | None = None) -> dict:
+                        progress: dict | None = None,
+                        target: str = "lossless") -> dict:
         """洗版: 重新按最高档下载, 换上更好的文件.
 
         只做"真的更好"的替换 —— 下回来发现档位没提升就把临时文件丢掉,
         不会为了洗版而白折腾一遍库。
         """
         from .quality import better, rank
+        chain = self.UPGRADE_CHAIN.get((target or "lossless").lower(),
+                                       self.UPGRADE_CHAIN["lossless"])
         rows = self.lossy_tracks()
         if ids is not None:
             keep = {int(i) for i in ids}
             rows = [r for r in rows if int(r["id"]) in keep]
 
-        out = {"total": len(rows), "upgraded": 0, "skipped": 0, "failed": 0,
+        out = {"total": len(rows), "target": target, "upgraded": 0, "skipped": 0, "failed": 0,
                "no_source": 0, "samples": [], "errors": []}
         touched = 0
         for idx, row in enumerate(rows, 1):
@@ -1267,7 +1295,8 @@ class SyncEngine:
                 track_no=int(row["track_no"] or 0), cover_url=row.get("cover") or "",
             )
             try:
-                src_path, src = self.downloader.fetch(row["provider"], track)
+                src_path, src = self.downloader.fetch(row["provider"], track,
+                                                      chain_override=chain)
             except Exception as exc:  # noqa: BLE001 - 单曲失败不影响整批
                 msg = str(exc)[:120]
                 out["no_source" if "无可用音源" in msg else "failed"] += 1

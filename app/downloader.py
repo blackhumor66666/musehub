@@ -52,13 +52,13 @@ class Downloader:
 
     # ---------- 对外 ----------
     def fetch(self, provider_name: str, track: RemoteTrack,
-              on_progress=None) -> tuple[Path, DownloadSource]:
+              on_progress=None, chain_override=None) -> tuple[Path, DownloadSource]:
         """下载到 staging, 返回 (本地文件, 音源信息). 失败抛 DownloadError."""
         provider = self._download_provider(provider_name)
         if provider is None:
             raise DownloadError(f"未知平台 {provider_name}")
 
-        chain = list(getattr(provider.cfg, "quality_chain", ()) or ())
+        chain = list(chain_override or getattr(provider.cfg, "quality_chain", ()) or ())
         if not chain:
             chain = ["standard"]
         errors: list[str] = []

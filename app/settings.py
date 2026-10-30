@@ -103,31 +103,25 @@ class Field:
 
 
 # ---------------- 字段定义 ----------------
-Field("netease.cookie", "platform", "网易云 Cookie(旧字段)", "cookie",
+Field("netease.cookie", "platform", "网易云 Cookie", "cookie",
       "浏览器登录 music.163.com → F12 → Network → 任意请求 → 复制 Cookie 整行。"
-      "必须含 MUSIC_U；不填只能搜索, 下不了高音质。", placeholder="MUSIC_U=...; __csrf=...",
-      hidden=True)
-Field("netease.accounts", "platform", "网易云账号（支持多账号）", "accounts",
+      "浏览器登录 music.163.com → F12 → Network → 任意请求 → 复制整行 Cookie。"
+      "必须含 MUSIC_U；**填带黑胶会员的账号**。不填只能搜索, 下不了高音质。",
+      placeholder="MUSIC_U=...; __csrf=...")
+Field("netease.accounts", "platform", "网易云账号（旧·多账号）", "accounts",
       "每行一个账号：昵称=Cookie。例如:\n我=MUSIC_U=xxx; __csrf=yyy\n老婆=MUSIC_U=zzz\n"
-      "**账号只负责「读歌单」**：谁有权限读哪个歌单就订阅谁；下载统一走下面的「下载账号」，"
-      "所以只有会员账号需要长期有效。只填一行 = 单账号。")
-Field("qq.accounts", "platform", "QQ 音乐账号（支持多账号）", "accounts",
-      "每行一个账号：昵称=Cookie。多账号只影响「能读到哪些歌单」，下载统一走「下载账号」。"
-      "取消收藏走 fcg_music_del2songdir 接口，平台拒绝时会进入待处理队列并告警。")
-Field("qq.download_account", "platform", "QQ 下载账号（填昵称）", "text",
-      "填哪个账号负责取音源，留空 = 第一个。**建议填有绿钻的账号**；"
-      "小号只用来订阅歌单时，这里填会员账号即可，小号过期也不影响下载。")
-Field("netease.download_account", "platform", "网易云下载账号（填昵称）", "text",
-      "填哪个账号负责取音源，留空 = 第一个。填有黑胶会员的账号。")
+      "已合并到上面的单个 Cookie，这里仅为兼容保留。", hidden=True)
+Field("qq.accounts", "platform", "QQ 音乐账号（旧·多账号）", "accounts",
+      "已合并到上面的单个 Cookie，这里仅为兼容保留。", hidden=True)
 Field("netease.max_quality", "platform", "网易云下载音质上限", "quality",
       "按网易云 App 里的叫法选择。选「无损音质」表示优先下无损；某首歌没有无损时自动降到极高 → 较高 → 标准。",
       options=NETEASE_LEVELS)
 
-Field("qq.cookie", "platform", "QQ 音乐 Cookie(旧字段)", "cookie",
-      "浏览器登录 y.qq.com 后复制 Cookie。公开歌单免登录可读, 私密歌单和下载需要它。",
-      placeholder="uin=...; qm_keyst=...", hidden=True)
+Field("qq.cookie", "platform", "QQ 音乐 Cookie", "cookie",
+      "浏览器登录 y.qq.com 后复制整行 Cookie。**填带绿钻的账号**；公开歌单免登录可读。",
+      placeholder="pgv_pvid=...; qm_keyst=...")
 Field("qq.uin", "platform", "QQ 号", "text",
-      "一般能从 Cookie 自动解析; 解析不出来再手填。")
+      "一般能从 Cookie 自动解析, 不用填。", hidden=True)
 Field("qq.favorite_dissid", "platform", "『我喜欢』歌单 ID", "text",
       "只有 QQ 需要填：网易云的『我喜欢』能通过接口自动识别，QQ 的接口不返回，只能手填一次。"
       "打开 y.qq.com 的『我喜欢』歌单，地址栏 /playlist/<数字> 就是它。可点右侧「自动查找」。")
@@ -328,22 +322,23 @@ def _get_section(cfg: Any, key: str) -> tuple[Any, str]:
 
 def load_into(cfg: Any, db: Any) -> list[str]:
     """启动时把面板里存过的值覆盖到 Config 上. 返回被覆盖的键."""
-    # 迁移: 只填过旧版单账号 Cookie 时, 自动补一份多账号(运行期只认多账号)
+    # 账号只保留一份(单会员号)。历史遗留的多账号列表合并进 cookie 后清空,
+    # 否则会出现"同一个号被当成两个账号", 面板上还多一堆看不懂的字段。
     for prov in ("netease", "qq"):
         acc_f = FIELDS_BY_KEY.get(f"{prov}.accounts")
         ck_f = FIELDS_BY_KEY.get(f"{prov}.cookie")
         if acc_f is None or ck_f is None:
             continue
         raw_acc = (db.kv_get(kv_key(acc_f), "") or "").strip()
-        if raw_acc:
-            # 规范化: 老数据里"裸 Cookie"曾被误拆成 账号名=pgv_pvid/..., 这里纠正回来
-            norm = render_accounts(parse_accounts(raw_acc))
-            if norm and norm != raw_acc:
-                db.kv_set(kv_key(acc_f), norm)
-            continue
-        legacy = (db.kv_get(kv_key(ck_f), "") or "").strip()
-        if legacy:
-            db.kv_set(kv_key(acc_f), render_accounts([("默认", legacy)]))
+        accs = parse_accounts(raw_acc)
+        cookie = (db.kv_get(kv_key(ck_f), "") or "").strip()
+        if accs and not cookie:
+            first = accs[0][1]
+            if first:
+                db.kv_set(kv_key(ck_f), first)
+                cookie = first
+        if accs and cookie:
+            db.kv_set(kv_key(acc_f), "")     # 已合并, 清空多账号
     applied: list[str] = []
     for f in FIELDS:
         row = db.query_one("SELECT value FROM kv WHERE key=?", (kv_key(f),))

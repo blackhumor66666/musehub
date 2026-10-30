@@ -100,6 +100,14 @@ CREATE TABLE IF NOT EXISTS events (
     meta    TEXT NOT NULL DEFAULT '{}'
 );
 CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts DESC);
+-- 一个歌单可以镜像给多个播放器账号, 每个账号一条镜像记录
+CREATE TABLE IF NOT EXISTS playlist_mirrors (
+    playlist_id  INTEGER NOT NULL,
+    account      TEXT NOT NULL DEFAULT '',   -- 空 = 默认账号
+    navidrome_id TEXT NOT NULL DEFAULT '',
+    name         TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (playlist_id, account)
+);
 -- 体检里"补不了"的条目: 用户点忽略后不再重复提示
 -- kind: cover / lyric / meta
 CREATE TABLE IF NOT EXISTS ignored (

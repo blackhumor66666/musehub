@@ -489,9 +489,18 @@ class QQProvider(BaseProvider):
         }
         try:
             resp = self.session.post(endpoint, data=data, timeout=20)
-            payload = resp.json()
         except Exception as exc:  # noqa: BLE001 - 旧接口失败形式多样
             raise Unsupported(f"QQ音乐歌单{op}接口不可用: {exc}") from exc
+        if resp.status_code >= 400 or not (resp.text or "").strip().startswith("{"):
+            # 实测该接口已返回 501 + "bad request", 说明这代 songdir 接口下线了。
+            # 微信登录的 Cookie 也没有 skey/g_tk, 新版 musicu 写接口同样过不去。
+            raise Unsupported(
+                f"QQ 音乐不支持自动{('取消收藏' if op == 'del' else '收藏')}"
+                f"（旧接口已下线, HTTP {resp.status_code}）；请在 QQ 音乐里手动处理")
+        try:
+            payload = resp.json()
+        except ValueError as exc:
+            raise Unsupported(f"QQ音乐歌单{op}返回非 JSON: {exc}") from exc
         code = payload.get("code")
         if code not in (0, None):
             raise Unsupported(f"QQ音乐歌单{op}失败 code={code} ({payload.get('subcode')})")
