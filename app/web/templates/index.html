@@ -331,7 +331,7 @@ tr:last-child td{border-bottom:none}
 /* ---------- 弹层 / 登录 / 提示 ---------- */
 .modal{position:fixed;inset:0;background:rgba(23,20,15,.42);display:none;align-items:center;
   justify-content:center;z-index:90;padding:20px;backdrop-filter:blur(2px)}
-.modal.show{display:flex;animation:fade .22s ease-out both}
+.modal.open,.modal.show{display:flex;animation:fade .22s ease-out both}
 @keyframes fade{from{opacity:0}to{opacity:1}}
 .modal .box{
   background:var(--paper-2);border:1px solid var(--ink);border-radius:3px;
@@ -1459,6 +1459,26 @@ PAGES.repair = { title:'库体检', sub:'元数据、封面、歌词一次检测
         <div class="muted mono" id="rpProgText" style="font-size:11.5px;margin-top:7px">准备中…</div>
       </div>
       <div id="rpBody"></div>
+    </div>
+
+    <div class="card">
+      <div class="chd">
+        <div class="chd-main">
+          <h2 class="ct">音质升级</h2>
+          <div class="ct-sub">有损曲目按最高档重下，只替换真的更好的；旧文件进回收目录</div>
+          <div class="hd-tags"><span class="pill tight" id="qlPill">统计中…</span></div>
+        </div>
+        <div class="chd-acts">
+          <button class="sm" id="qlRefresh">${icon('refresh')}刷新清单</button>
+          <button class="sm primary" id="qlUpgradeAll">${icon('cloud')}一键洗版</button>
+        </div>
+      </div>
+      <div class="flash" id="qlFlash"></div>
+      <div id="qlProg" style="display:none;margin:14px 0 6px">
+        <div class="bar"><i id="qlBar" style="width:0%"></i></div>
+        <div class="muted mono" id="qlProgText" style="font-size:11.5px;margin-top:7px">准备中…</div>
+      </div>
+      <div id="qlBody"></div>
     </div>`;
   setActs(`<button class="sm" id="rpUnignore">恢复忽略</button>`);
   $('rpUnignore').onclick = async () => {
@@ -1469,7 +1489,10 @@ PAGES.repair = { title:'库体检', sub:'元数据、封面、歌词一次检测
   };
   $('rpScan').onclick = () => doRepairScan(true);
   $('rpFixAll').onclick = () => doRepairFixAll();
+  $('qlRefresh').onclick = () => loadQuality(true);
+  $('qlUpgradeAll').onclick = () => doQualityUpgrade(null);
   await refreshRepair(true);
+  await loadQuality(false);
 }};
 
 function rpFlash(msg, kind = 'info'){
@@ -1536,8 +1559,9 @@ function renderRepairMerged(scan, rep){
       封面 / 歌词还没检测过 —— 点右上角「重新检测」扫一遍全库（约 20–60 秒）。
     </div>`}
     <div class="muted mono" style="font-size:11.5px;margin:4px 0 8px">
-      共 ${rows.length} 首待处理${rows.length > 300 ? '（下列前 300 首）' : ''}
+      共 ${rows.length} 首待处理${rows.length > 300 ? '（列出前 300 首）' : ''}
     </div>
+    <div style="max-height:420px;overflow:auto;padding-right:4px">
     ${rows.slice(0, 300).map(r => {
       const kinds = [];
       if([...r.missing].some(f => f !== 'cover' && f !== 'lyric')) kinds.push('meta');
@@ -1550,7 +1574,8 @@ function renderRepairMerged(scan, rep){
         ${[...r.missing].map(f => `<span class="badge warn">${RP_LABEL[f] || f}</span>`).join('')}
         <button class="sm ghost" data-ignore="${r.id}" data-kinds="${kinds.join(',')}">忽略</button>
       </div>`;
-    }).join('')}`;
+    }).join('')}
+    </div>`;
 
   box.querySelectorAll('[data-ignore]').forEach(btn => btn.onclick = async () => {
     const id = Number(btn.dataset.ignore);
@@ -1656,6 +1681,94 @@ async function watchRepairBusy(after){
     else await refreshRepair(false);
   };
   window._rpTimer = setTimeout(tick, 800);
+}
+
+/* ---- 音质升级（有损清单 + 洗版） ---- */
+let QL_ITEMS = [];
+function qlFlash(msg, kind='info'){
+  const el = $('qlFlash'); if(!el) return;
+  const ic = {ok:'✓', bad:'!', info:'·', busy:'◌'}[kind] || '·';
+  el.className = 'flash show ' + kind;
+  el.innerHTML = `<span class="f-ic">${ic}</span><span>${esc(msg)}</span>`;
+  clearTimeout(el._h);
+  if(kind !== 'busy') el._h = setTimeout(() => el.classList.remove('show'), 10000);
+}
+function qlProgress(p, label){
+  const box = $('qlProg'); if(!box) return;
+  if(!p || !p.total){ box.style.display = 'none'; return; }
+  box.style.display = '';
+  const pct = Math.min(100, Math.round((p.done || 0) * 100 / p.total));
+  $('qlBar').style.width = pct + '%';
+  $('qlProgText').textContent =
+    `${label} ${p.done || 0}/${p.total}（${pct}%）${p.current ? ' · ' + p.current : ''}`;
+}
+async function loadQuality(verbose){
+  const pill = $('qlPill');
+  if(verbose && pill) pill.textContent = '统计中…';
+  let d;
+  try{ d = await api('/api/quality/lossy'); }
+  catch(e){ qlFlash('读取失败：' + e.message, 'bad'); return; }
+  QL_ITEMS = d.items || [];
+  if(pill){
+    pill.innerHTML = d.total
+      ? `有损 <b>${d.total}</b> 首 · ` + (d.by_quality || [])
+          .map(x => `${esc(x.label)} ${x.count}`).join(' · ')
+      : '没有有损文件';
+    pill.className = 'pill tight' + (d.total ? ' warn' : '');
+  }
+  const box = $('qlBody'); if(!box) return;
+  if(!QL_ITEMS.length){
+    box.innerHTML = `<div class="empty"><span class="e-ic">✓</span>全部是无损，不用洗版</div>`;
+    return;
+  }
+  box.innerHTML = `
+    <div class="muted mono" style="font-size:11.5px;margin:4px 0 8px">
+      共 ${QL_ITEMS.length} 首${QL_ITEMS.length > 300 ? '（列出前 300 首）' : ''}
+    </div>
+    <div style="max-height:420px;overflow:auto;padding-right:4px">
+    ${QL_ITEMS.slice(0, 300).map(t => `
+      <div class="dup-row" data-q="${t.id}">
+        <span class="badge warn">${esc(t.quality_label)}</span>
+        <span style="flex:1 1 220px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+          <b>${esc(t.title)}</b> <span class="muted">— ${esc(t.artists)}</span></span>
+        <span class="muted mono" style="font-size:11px">${esc(t.ext || '')}</span>
+        <button class="sm ghost" data-up="${t.id}">洗版</button>
+      </div>`).join('')}
+    </div>`;
+  box.querySelectorAll('[data-up]').forEach(btn => btn.onclick = () =>
+    doQualityUpgrade([Number(btn.dataset.up)]));
+}
+async function doQualityUpgrade(ids){
+  const n = ids ? ids.length : QL_ITEMS.length;
+  if(!n){ toast('没有需要洗版的曲目'); return; }
+  if(!await askConfirm(ids ? '洗版这一首？' : '一键洗版全部有损曲目？',
+    `${ids ? '' : `共 <b>${n}</b> 首，`}按当前音质上限重新下载，<b>只有真的更好的才会替换</b>；<br>
+     旧文件按删除策略处理（默认进回收目录，可找回）。<br>
+     <span style="color:var(--muted)">下载量大时耗时较长，可以离开这个页面。</span>`,
+    {okText:'开始洗版'})) return;
+  try{
+    await api('/api/quality/upgrade', {method:'POST',
+      body: JSON.stringify(ids ? {ids} : {})});
+  }catch(e){ qlFlash('启动失败：' + e.message, 'bad'); return; }
+  qlFlash('正在洗版…', 'busy');
+  const started = Date.now();
+  const timer = setInterval(async () => {
+    let s;
+    try{ s = await api('/api/quality/status'); }catch(e){ return; }
+    if(s.running){
+      qlProgress(s.progress, '洗版中');
+      if(Date.now() - started > 3 * 3600 * 1000) clearInterval(timer);
+      return;
+    }
+    clearInterval(timer); qlProgress(null);
+    if(s.error){ qlFlash('洗版失败：' + s.error, 'bad'); return; }
+    const r = s.result || {};
+    qlFlash(`完成：升级 ${r.upgraded || 0} 首`
+      + (r.skipped ? ` · 已是最佳 ${r.skipped}` : '')
+      + (r.no_source ? ` · 无源 ${r.no_source}` : '')
+      + (r.failed ? ` · 失败 ${r.failed}` : ''), 'ok');
+    await loadQuality(false);
+  }, 1500);
 }
 
 /* ================= 页面: 运行日志 ================= */

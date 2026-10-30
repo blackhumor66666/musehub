@@ -68,6 +68,47 @@ class BaseCase(unittest.TestCase):
 
 class TestSyncFlow(BaseCase):
     # ---------- 搜歌下载与平台收藏的关系 ----------
+
+    def test_quality_upgrade_replaces_lossy(self) -> None:
+        """洗版: 有损记录重下后应换成无损, 且只换真的更好的."""
+        self.ne.seed_favorites(["101"])
+        self.subscribe()
+        self.engine.run(trigger="test")
+        row = self.db.find_track("netease", "101")
+        self.assertTrue(row["quality"], "应该记录了音质档位")
+
+        # 人为把它降级成有损, 模拟"库里有损需要洗版"
+        self.db.execute("UPDATE tracks SET quality='m800' WHERE id=?", (row["id"],))
+        # mock provider 拿到的是整份 Config, 这里补上音质链(真实 provider 拿的是平台段)
+        self.ne.cfg = self.cfg.netease
+        lossy = self.engine.lossy_tracks()
+        self.assertEqual(len(lossy), 1, lossy)
+
+        stats = self.engine.upgrade_quality()
+        self.assertEqual(stats["upgraded"], 1, stats)
+        row2 = self.db.find_track("netease", "101")
+        self.assertNotEqual(row2["quality"], "m800", "洗版后不该还是有损档位")
+        from app.quality import is_lossless
+        self.assertTrue(is_lossless(row2["quality"]), row2["quality"])
+        self.assertEqual(self.engine.lossy_tracks(), [], "洗版后不该再出现在有损清单")
+
+    def test_quality_upgrade_skips_when_already_best(self) -> None:
+        """重新下一遍结果一样时不能白搬文件(记录会被标成"已是最佳")."""
+        self.ne.seed_favorites(["101"])
+        self.subscribe()
+        self.engine.run(trigger="test")
+        row = self.db.find_track("netease", "101")
+        self.db.execute("UPDATE tracks SET quality='m800' WHERE id=?", (row["id"],))
+        # 把音质链压到 320k, 洗版也拿不到更好的
+        self.cfg.netease.quality_chain = ("m800",)
+        self.ne.cfg = self.cfg.netease
+        before = self.db.find_track("netease", "101")
+        stats = self.engine.upgrade_quality()
+        self.assertEqual(stats["upgraded"], 0, stats)
+        self.assertGreaterEqual(stats["skipped"], 1, stats)
+        after = self.db.find_track("netease", "101")
+        self.assertEqual(before["path"], after["path"], "没升级就不该动文件")
+
     def test_search_track_is_independent_from_favorites(self) -> None:
         """搜歌入库的曲目不属于任何歌单: 删文件不该回推取消收藏, 失败记录也不该被清掉."""
         hits = self.ne.search("晴天", limit=5)

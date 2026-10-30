@@ -1220,6 +1220,121 @@ class SyncEngine:
         return p.display if p else name
 
     # ---------- 单曲下载(供 TG/Web 用) ----------
+
+    # ---------- 音质洗版 ----------
+    def lossy_tracks(self) -> list[dict]:
+        """列出所有有损曲目(按名次升序, 最差的排前面)."""
+        from .quality import is_lossy
+        rows = [dict(r) for r in self.db.query(
+            """SELECT id, provider, account, remote_id, title, artists, album, albumartist,
+                      year, track_no, duration, cover, quality, path, size, ext
+               FROM tracks WHERE status='active' AND path<>'' AND remote_id<>''
+               ORDER BY id""")]
+        out = [r for r in rows if is_lossy(r["quality"])]
+        from .quality import rank
+        out.sort(key=lambda r: (rank(r["quality"]), r["artists"], r["title"]))
+        return out
+
+    def upgrade_quality(self, ids: list[int] | None = None,
+                        progress: dict | None = None) -> dict:
+        """洗版: 重新按最高档下载, 换上更好的文件.
+
+        只做"真的更好"的替换 —— 下回来发现档位没提升就把临时文件丢掉,
+        不会为了洗版而白折腾一遍库。
+        """
+        from .quality import better, rank
+        rows = self.lossy_tracks()
+        if ids is not None:
+            keep = {int(i) for i in ids}
+            rows = [r for r in rows if int(r["id"]) in keep]
+
+        out = {"total": len(rows), "upgraded": 0, "skipped": 0, "failed": 0,
+               "no_source": 0, "samples": [], "errors": []}
+        touched = 0
+        for idx, row in enumerate(rows, 1):
+            label = f"{row['artists']} - {row['title']}"
+            if progress is not None:
+                progress.update({"done": idx, "total": len(rows), "current": label})
+            provider = self.provider_for(row["provider"], row.get("account") or "")
+            if provider is None:
+                out["failed"] += 1
+                continue
+            track = RemoteTrack(
+                provider=row["provider"], remote_id=row["remote_id"], title=row["title"],
+                artists=[a.strip() for a in (row["artists"] or "").split(";") if a.strip()],
+                album=row["album"], album_artist=row["albumartist"],
+                duration=int(row["duration"] or 0), year=row["year"],
+                track_no=int(row["track_no"] or 0), cover_url=row.get("cover") or "",
+            )
+            try:
+                src_path, src = self.downloader.fetch(row["provider"], track)
+            except Exception as exc:  # noqa: BLE001 - 单曲失败不影响整批
+                msg = str(exc)[:120]
+                out["no_source" if "无可用音源" in msg else "failed"] += 1
+                out["errors"].append(f"{label}: {msg}")
+                continue
+
+            if not better(src.quality, row["quality"]):
+                try:
+                    src_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                out["skipped"] += 1
+                continue
+
+            try:
+                meta = TrackMeta(
+                    title=track.title or "未知歌名",
+                    artists=track.artists or ["未知艺术家"],
+                    album=track.album or "",
+                    albumartist=track.album_artist or "",
+                    year=str(track.year or ""),
+                    track_no=int(track.track_no or 0),
+                    duration=int(track.duration or 0),
+                )
+                self.organizer.write_tags(src_path, meta)
+                cover = (self.downloader.fetch_image(track.cover_url)
+                         if track.cover_url else b"")
+                if cover and self.cfg.organizer.embed_cover:
+                    self.organizer.embed_cover(src_path, cover)
+                target = self.organizer.place(src_path, meta, self.cfg.music_dir)
+                if cover:
+                    self.organizer.save_cover_file(target, cover)
+            except Exception as exc:  # noqa: BLE001
+                try:
+                    src_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                out["failed"] += 1
+                out["errors"].append(f"{label}: 归档失败 {str(exc)[:80]}")
+                continue
+
+            new_rel = target.relative_to(self.cfg.music_dir).as_posix()
+            old_rel = row["path"]
+            self.db.execute(
+                """UPDATE tracks SET path=?, size=?, ext=?, quality=?, updated_at=? WHERE id=?""",
+                (new_rel, target.stat().st_size if target.exists() else 0,
+                 target.suffix.lstrip("."), src.quality, now_iso(), row["id"]),
+            )
+            if old_rel and old_rel != new_rel:
+                self._dispose_file(old_rel)      # 旧文件进回收目录
+            out["upgraded"] += 1
+            touched += 1
+            if len(out["samples"]) < 10:
+                out["samples"].append(f"{label}: {row['quality']} → {src.quality}")
+            self.db.log("info", row["provider"],
+                        f"洗版: {label} {row['quality']} → {src.quality}", path=new_rel)
+
+        if touched:
+            try:
+                self.mirror_player()
+            except Exception as exc:  # noqa: BLE001 - 镜像失败不影响洗版结果
+                self.db.log("warn", "quality", f"洗版后镜像失败: {exc}")
+        self.db.log("info", "quality",
+                    f"音质洗版完成: 升级 {out['upgraded']} / 已是最好 {out['skipped']} / "
+                    f"无源 {out['no_source']} / 失败 {out['failed']}")
+        return out
+
     def download_single(self, track: RemoteTrack) -> dict:
         """把一首搜到的歌直接下载进库(不依赖歌单).
 

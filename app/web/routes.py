@@ -616,7 +616,58 @@ def create_app(ctx: Context) -> FastAPI:
         threading.Thread(target=_run, name="mh-repair-fix", daemon=True).start()
         return JSONResponse({"ok": True, "started": True})
 
+
+    # ---------- 音质洗版: 有损清单 + 一键升级 ----------
+    _qual: dict = {"running": False, "progress": {}, "error": "", "result": None}
+
+    @app.get("/api/quality/lossy")
+    def quality_lossy(_: None = Depends(auth)) -> JSONResponse:
+        from ..quality import label as qlabel
+        rows = ctx.engine.lossy_tracks()
+        by: dict[str, int] = {}
+        for r in rows:
+            by[r["quality"]] = by.get(r["quality"], 0) + 1
+        return JSONResponse({
+            "total": len(rows),
+            "by_quality": [{"quality": q, "label": qlabel(q), "count": n}
+                           for q, n in sorted(by.items(), key=lambda x: -x[1])],
+            "items": [{"id": r["id"], "title": r["title"], "artists": r["artists"],
+                       "quality": r["quality"], "quality_label": qlabel(r["quality"]),
+                       "ext": r["ext"], "path": r["path"]} for r in rows],
+        })
+
+    @app.get("/api/quality/status")
+    def quality_status(_: None = Depends(auth)) -> JSONResponse:
+        return JSONResponse(_qual)
+
+    @app.post("/api/quality/upgrade")
+    async def quality_upgrade(request: Request, _: None = Depends(auth)) -> JSONResponse:
+        """洗版: 把有损曲目重新按最高档下载, 只替换真的更好的."""
+        if _qual["running"]:
+            return JSONResponse({"ok": False, "error": "洗版正在进行中"}, status_code=409)
+        try:
+            body = await request.json()
+        except Exception:  # noqa: BLE001
+            body = {}
+        ids = body.get("ids")
+        _qual.update(running=True, error="", result=None,
+                     progress={"done": 0, "total": 0, "current": "准备中…"})
+
+        def _run() -> None:
+            try:
+                _qual["result"] = ctx.engine.upgrade_quality(ids=ids,
+                                                             progress=_qual["progress"])
+            except Exception as exc:  # noqa: BLE001
+                _qual["error"] = str(exc)[:300]
+            finally:
+                _qual["running"] = False
+                _qual["progress"] = {}
+
+        threading.Thread(target=_run, name="mh-quality-upgrade", daemon=True).start()
+        return JSONResponse({"ok": True, "started": True})
+
     # 一键洗版要读几千个文件的真实参数, 放后台跑, 前端轮询进度
+
     _upg: dict = {"running": False, "stats": None, "error": ""}
 
     @app.post("/api/duplicates/upgrade-all")
