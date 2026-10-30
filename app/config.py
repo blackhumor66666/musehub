@@ -52,6 +52,8 @@ def _env_bool(name: str, default: bool = False) -> bool:
 class NeteaseConfig:
     cookie: str = ""
     accounts: list = field(default_factory=list)   # [(昵称, cookie)] 多账号, 面板维护
+    # 下载/取音源用哪个账号(留空=第一个). 订阅只负责"读歌单", 与这个解耦
+    download_account: str = ""
     # 最高音质(面板里选), 实际下载按 quality_chain 逐级降级
     max_quality: str = "lossless"
     quality_chain: tuple[str, ...] = ("lossless", "exhigh", "higher", "standard")
@@ -62,6 +64,7 @@ class NeteaseConfig:
 class QQConfig:
     cookie: str = ""
     accounts: list = field(default_factory=list)
+    download_account: str = ""   # 下载用账号(留空=第一个), 见 NeteaseConfig 说明
     uin: str = ""
     favorite_dissid: str = ""   # 『我喜欢』歌单 dissid, 用于收藏双向同步
     max_quality: str = "f000"
@@ -119,6 +122,12 @@ class NotifyConfig:
     enabled: bool = True
     telegram: bool = True          # 推送到 Telegram(复用已有机器人)
     webhook_url: str = ""          # 通用 Webhook: POST JSON, 可接 Emby/n8n/自建服务
+    # 国内常用 IM 机器人(都是 webhook, 无需公网回连)
+    wecom_url: str = ""            # 企业微信群机器人
+    dingtalk_url: str = ""         # 钉钉群机器人(支持加签)
+    dingtalk_secret: str = ""      # 钉钉「加签」密钥, 安全设置选了加签才需要
+    feishu_url: str = ""           # 飞书自定义机器人
+    feishu_secret: str = ""        # 飞书「签名校验」密钥
     verbose_tracks: bool = True    # 逐首列出新入库歌曲(关掉只报数量)
     playlist_changes: bool = True  # 歌单有增删
     track_added: bool = True       # 新歌入库

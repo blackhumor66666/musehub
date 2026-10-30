@@ -221,3 +221,85 @@ class TestWebhook(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class TestImChannels(unittest.TestCase):
+    """企业微信 / 钉钉 / 飞书: 载荷格式、加签、错误码识别."""
+
+    def _capture(self, over):
+        import app.notify as N
+        calls = []
+
+        class Resp:
+            status_code = 200
+
+            def __init__(self, payload):
+                self._p = payload
+
+            def json(self):
+                return self._p
+
+        class FakeReq:
+            @staticmethod
+            def post(url, json=None, timeout=None):
+                calls.append((url, json))
+                return Resp({"errcode": 0, "code": 0})
+
+        old = N.requests
+        N.requests = FakeReq
+        self.addCleanup(lambda: setattr(N, "requests", old))
+        n, _sent, conf = make(enabled=True, telegram=False,
+                              wecom_url="https://qyapi.weixin.qq.com/x",
+                              dingtalk_url="https://oapi.dingtalk.com/robot/send?access_token=t",
+                              dingtalk_secret="SECabc",
+                              feishu_url="https://open.feishu.cn/open-apis/bot/v2/hook/x",
+                              feishu_secret="fssecret", **over)
+        return n, calls
+
+    def test_payloads_and_signature(self) -> None:
+        n, calls = self._capture({})
+        sent = n._fanout_im("<b>标题</b>\n\n新歌 3 首")
+        self.assertEqual(sent, ["企业微信", "钉钉", "飞书"])
+        self.assertEqual(len(calls), 3)
+
+        wecom_url, wecom = calls[0]
+        self.assertIn("text", wecom)
+        self.assertEqual(wecom["text"]["content"], "标题\n\n新歌 3 首",
+                         "HTML 标签必须被剥掉")
+
+        ding_url, ding = calls[1]
+        self.assertIn("timestamp=", ding_url)
+        self.assertIn("sign=", ding_url)
+        self.assertIn("access_token=t", ding_url)
+        self.assertEqual(ding["msgtype"], "text")
+
+        fei_url, fei = calls[2]
+        self.assertIn("timestamp", fei)
+        self.assertIn("sign", fei)
+        self.assertEqual(fei["msg_type"], "text")
+
+    def test_error_code_is_reported(self) -> None:
+        import app.notify as N
+
+        class Resp:
+            status_code = 200
+
+            def json(self):
+                return {"errcode": 40058, "errmsg": "invalid webhook url"}
+
+        class FakeReq:
+            @staticmethod
+            def post(url, json=None, timeout=None):
+                return Resp()
+
+        old = N.requests
+        N.requests = FakeReq
+        self.addCleanup(lambda: setattr(N, "requests", old))
+        n, _sent, conf = make(enabled=True, telegram=False,
+                              wecom_url="https://qyapi.weixin.qq.com/x")
+        ok, err = n._send_wecom("测试")
+        self.assertFalse(ok, "200 里带 errcode 也必须判失败")
+        self.assertIn("40058", err)
+
+    def test_skips_unconfigured(self) -> None:
+        n, _sent, conf = make(enabled=True, telegram=False)
+        self.assertEqual(n._fanout_im("x"), [], "没配通道时不该发任何请求")

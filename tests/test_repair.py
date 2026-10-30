@@ -99,6 +99,29 @@ class TestRepair(unittest.TestCase):
         self.assertEqual(res2["missing_lyric"], 2, res2)
         self.assertEqual(res2["both"], 1, res2)
 
+
+    def test_ignored_items_drop_out_of_scan(self) -> None:
+        """点过"忽略"的条目不该再算进缺失, 否则每次体检都刷同一批."""
+        self._bare_wav("某歌手/某专辑/a.wav")
+        tid = self.db.upsert_track({
+            "provider": "netease", "remote_id": "9001", "title": "a", "artists": "某歌手",
+            "album": "某专辑", "albumartist": "某歌手", "path": "某歌手/某专辑/a.wav",
+            "status": "active", "managed": 0,
+        })
+        first = repair.scan(self.db, self.cfg)
+        self.assertGreaterEqual(first["missing_cover"], 1)
+
+        self.db.ignore_items("cover", [tid])
+        self.db.ignore_items("lyric", [tid])
+        second = repair.scan(self.db, self.cfg)
+        self.assertEqual(second["missing_cover"], 0, "忽略后仍报缺封面")
+        self.assertEqual(second["missing_lyric"], 0, "忽略后仍报缺歌词")
+        self.assertTrue(all(i["id"] != tid for i in second["items"]))
+
+        self.db.clear_ignored()
+        third = repair.scan(self.db, self.cfg)
+        self.assertGreaterEqual(third["missing_cover"], 1, "恢复忽略后应重新计入")
+
     def test_fix_only_touches_missing_parts(self) -> None:
         """修复只补缺的: 已经有的封面不能被动, 拿不到歌词算"无源"而不是失败."""
         self.ne.seed_favorites(["101"])

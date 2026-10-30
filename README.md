@@ -84,6 +84,12 @@ flowchart LR
 **每一步都可查。** 实时下载队列、失败原因（无音源 / 版权限制 / Cookie 失效）、
 7 天趋势、可筛选的日志。出问题不用猜。
 
+**通知不挑平台。** Telegram、企业微信、钉钉、飞书群机器人、通用 Webhook 都能接，
+钉钉/飞书支持加签；免打扰时段内的消息会积压到早上再发。
+
+**账号分工明确。** 「订阅账号」只负责读歌单（可以多个，小号也行），
+「下载账号」固定用会员号取音源 —— 小号 Cookie 过期不影响下载，换会员号也不用重订阅。
+
 <table>
 <tr>
 <td width="50%"><img src="docs/screenshots/subscriptions.png" alt="歌单订阅"></td>
@@ -205,7 +211,8 @@ Windows 想开机自启：建计划任务，程序填 `.venv\Scripts\python.exe`
 
 | 项 | 说明 |
 |---|---|
-| `NETEASE_ACCOUNTS` / `QQ_ACCOUNTS` | 每行 `昵称=Cookie`，支持多账号 |
+| `NETEASE_ACCOUNTS` / `QQ_ACCOUNTS` | 每行 `昵称=Cookie`，也支持直接贴整行 Cookie；多账号仅用于读歌单 |
+| `QQ_DOWNLOAD_ACCOUNT` / `NETEASE_DOWNLOAD_ACCOUNT` | 下载/取音源用哪个账号（填昵称，留空=第一个）；建议填会员号 |
 | `NAVIDROME_URL` / `USERNAME` / `PASSWORD` | 镜像目标；不填则只下载整理 |
 | `MUSIC_DIR_HOST` | Docker 部署时宿主机音乐库路径 |
 | `SYNC_INTERVAL_MINUTES` | 同步周期，默认 60 |
@@ -215,6 +222,7 @@ Windows 想开机自启：建计划任务，程序填 `.venv\Scripts\python.exe`
 | `DRY_RUN` | 只记录不执行，首次上线建议先开一轮 |
 | `SCRAPE_WORKERS` | 元数据刮削并发，默认 4（1~8） |
 | `TELEGRAM_TOKEN` / `ADMIN_IDS` | 可选，机器人 |
+| `WECOM_URL` / `DINGTALK_URL` + `DINGTALK_SECRET` / `FEISHU_URL` + `FEISHU_SECRET` | 可选，群机器人通知 |
 
 ## 已知边界
 

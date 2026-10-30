@@ -21,10 +21,15 @@
 from __future__ import annotations
 
 import json
+import base64
+import hashlib
+import hmac
+import re
 import threading
 import time
 from html import escape
 from typing import Any, Callable
+from urllib.parse import quote_plus
 
 try:                      # requests 是项目已有依赖, 这里只做兜底
     import requests
@@ -219,8 +224,14 @@ class Notifier:
                 sent.append("Webhook")
             else:
                 return False, f"Webhook 发送失败: {err}"
+        im_sent = self._fanout_im("🔔 MuseHub 通知测试\n\n收到这条说明通道正常。", "test")
+        if im_sent:
+            sent.extend(im_sent)
+        elif getattr(conf, "wecom_url", "") or getattr(conf, "dingtalk_url", "") \
+                or getattr(conf, "feishu_url", ""):
+            return False, "IM 通道发送失败，请检查 Webhook 地址与密钥"
         if not sent:
-            return False, "没有可用通道（Telegram 未启动且未填 Webhook）"
+            return False, "没有可用通道（Telegram 未启动，且未填 Webhook / 企业微信 / 钉钉 / 飞书）"
         return True, "已发送: " + " + ".join(sent)
 
     # ---------------- 发送 ----------------
@@ -238,6 +249,89 @@ class Notifier:
             return True, ""
         except Exception as exc:  # noqa: BLE001 - 外部服务不可用不能影响同步
             return False, str(exc)[:120]
+
+    # ---------------- 国内 IM 机器人 ----------------
+    # 这些消息原本按 Telegram 的 HTML 排版(<b>/<code>), 其他通道只收纯文本,
+    # 所以先剥掉标签再发, 避免出现一堆尖括号。
+    _TAG_RE = re.compile(r"</?[a-zA-Z][^>]*>")
+
+    def _plain(self, text: str) -> str:
+        t = self._TAG_RE.sub("", text or "")
+        for a, b in (("&lt;", "<"), ("&gt;", ">"), ("&amp;", "&"),
+                     ("&quot;", '"'), ("&#39;", "'")):
+            t = t.replace(a, b)
+        return re.sub(r"\n{3,}", "\n\n", t).strip()
+
+    def _post_json(self, url: str, body: dict, *, name: str) -> tuple[bool, str]:
+        if requests is None:
+            return False, "缺少 requests 依赖"
+        try:
+            r = requests.post(url, json=body, timeout=8)
+            if r.status_code >= 300:
+                return False, f"HTTP {r.status_code}"
+            try:
+                data = r.json()
+            except ValueError:
+                return True, ""
+            # 三家都是 200 里带错误码, 必须看返回体
+            code = data.get("errcode", data.get("code", 0))
+            if code not in (0, None):
+                return False, f"{name} 返回 {code}: {str(data.get('errmsg') or data.get('msg') or '')[:80]}"
+            return True, ""
+        except Exception as exc:  # noqa: BLE001 - 外部服务异常不能影响同步
+            return False, str(exc)[:120]
+
+    def _send_wecom(self, text: str) -> tuple[bool, str]:
+        url = (getattr(self.conf, "wecom_url", "") or "").strip()
+        if not url:
+            return False, "未配置"
+        return self._post_json(url, {"msgtype": "text", "text": {"content": text[:1800]}},
+                               name="企业微信")
+
+    def _send_dingtalk(self, text: str) -> tuple[bool, str]:
+        url = (getattr(self.conf, "dingtalk_url", "") or "").strip()
+        if not url:
+            return False, "未配置"
+        secret = (getattr(self.conf, "dingtalk_secret", "") or "").strip()
+        if secret:
+            ts = str(round(time.time() * 1000))
+            digest = hmac.new(secret.encode(), f"{ts}\n{secret}".encode(),
+                              digestmod=hashlib.sha256).digest()
+            sign = quote_plus(base64.b64encode(digest))
+            sep = "&" if "?" in url else "?"
+            url = f"{url}{sep}timestamp={ts}&sign={sign}"
+        return self._post_json(url, {"msgtype": "text", "text": {"content": text[:1800]}},
+                               name="钉钉")
+
+    def _send_feishu(self, text: str) -> tuple[bool, str]:
+        url = (getattr(self.conf, "feishu_url", "") or "").strip()
+        if not url:
+            return False, "未配置"
+        body: dict = {"msg_type": "text", "content": {"text": text[:1800]}}
+        secret = (getattr(self.conf, "feishu_secret", "") or "").strip()
+        if secret:
+            ts = str(int(time.time()))
+            digest = hmac.new(f"{ts}\n{secret}".encode(), digestmod=hashlib.sha256).digest()
+            body["timestamp"] = ts
+            body["sign"] = base64.b64encode(digest).decode()
+        return self._post_json(url, body, name="飞书")
+
+    def _fanout_im(self, text: str, kind: str = "info") -> list[str]:
+        """把一条消息发给所有已配置的 IM 通道, 返回成功的通道名."""
+        plain = self._plain(text)
+        sent: list[str] = []
+        for sender, label in ((self._send_wecom, "企业微信"),
+                              (self._send_dingtalk, "钉钉"),
+                              (self._send_feishu, "飞书")):
+            if not getattr(self.conf, sender.__name__.replace("_send_", "") + "_url", ""):
+                continue
+            ok, err = sender(plain)
+            if ok:
+                sent.append(label)
+            elif time.time() - self._webhook_warned > 600:
+                self._webhook_warned = time.time()
+                self.db.log("warn", "notify", f"{label} 推送失败: {err}")
+        return sent
 
     def _send(self, lines: list[str], kind: str = "info", force: bool = False,
               photo: str | None = None) -> None:
@@ -273,6 +367,7 @@ class Notifier:
             if not ok and time.time() - self._webhook_warned > 600:
                 self._webhook_warned = time.time()
                 self.db.log("warn", "notify", f"Webhook 推送失败: {err}")
+        self._fanout_im(text, kind)
 
     def _flush_pending(self) -> None:
         with self._lock:
@@ -287,6 +382,7 @@ class Notifier:
                 self._tg(head + "\n\n" + body)
             except Exception:  # noqa: BLE001
                 pass
+        self._fanout_im(head + "\n\n" + body, "pending")
 
     def _bullets(self, title: str, items: list[str]) -> list[str]:
         conf = self.conf

@@ -1419,283 +1419,240 @@ PAGES.library = { title:'曲库统计', sub:'基于真实文件统计：同一�
 }};
 
 /* ================= 页面: 库体检（封面/歌词） ================= */
-PAGES.repair = { title:'库体检', sub:'元数据补全、封面与歌词体检，一键修复', async render(){
-  $('page').innerHTML = `
-    <div class="card" style="margin-bottom:16px">
-      <div class="chd">
-        <div class="chd-main">
-          <h2 class="ct">元数据补全</h2>
-          <div class="hd-tags">
-            <span class="pill tight" id="msPill">检测中…</span>
-            <span class="pill tight" id="msLast">—</span>
-          </div>
-        </div>
-        <div class="chd-acts">
-          <button class="sm" id="msFixYear">只补年份</button>
-          <button class="sm primary" id="msFixAll">${icon('refresh')}补全缺失字段</button>
-        </div>
-      </div>
-      <details class="hint">
-        <summary>刮削规则（只补空缺，不改已有）</summary>
-        <div class="hint-body">
-          <b>补什么</b>：年份、音轨号、专辑、专辑艺人、封面地址——只补<b>空着的</b>，
-          已有值（标题/艺人/专辑写法）一律不动。<br>
-          <b>怎么取</b>：用库里记录的<b>平台 ID</b> 直接向网易云/QQ 取这首歌的权威数据，
-          不做"标题+艺人"搜索，所以不会配错成现场版或翻唱。<br>
-          <b>为什么不用 Music Tag Web</b>：它的源（酷狗/酷我/QQ）都不返回流派，且只能靠搜索匹配。
-          实测它对已有标签的文件会整首跳过，对你这个库等于空转。<br>
-          <b>能力边界</b>：流派补不了——网易云/QQ 接口都不提供 genre 字段。
-          另外 <span class="mono">provider=local</span> 的本地文件没有平台 ID，不在自动范围内。
-        </div>
-      </details>
-      <div class="flash" id="msFlash"></div>
-      <div id="msBody"></div>
-    </div>
+/* ================= 页面: 库体检（元数据 + 封面/歌词 合并） ================= */
+const RP_LABEL = {year:'缺年份', track_no:'缺音轨号', album:'缺专辑',
+                  albumartist:'缺专辑艺人', cover:'缺封面', lyric:'缺歌词'};
+const RP_META_FIELDS = ['year','track_no','album','albumartist','cover'];
 
-    <div class="card" style="margin-bottom:16px">
+PAGES.repair = { title:'库体检', sub:'元数据、封面、歌词一次检测；补不了的点「忽略」就不再提示', async render(){
+  $('page').innerHTML = `
+    <div class="card">
       <div class="chd">
         <div class="chd-main">
-          <h2 class="ct">封面 / 歌词体检</h2>
+          <h2 class="ct">元数据体检</h2>
+          <div class="ct-sub">缺失项合并展示。「补全全部」按 <b>元数据 → 封面 → 歌词</b> 顺序执行</div>
           <div class="hd-tags">
-            <span class="pill tight" id="rpPill">尚未检测</span>
-            <span class="pill tight" id="rpLast">—</span>
+            <span class="pill tight" id="rpPill">检测中…</span>
+            <span class="pill tight" id="rpIgnored" style="display:none"></span>
           </div>
         </div>
         <div class="chd-acts">
-          <button class="sm" id="rpScan">${icon('search')}开始检测</button>
-          <button class="sm" id="rpFixCover" disabled>只补封面</button>
-          <button class="sm" id="rpFixLyric" disabled>只补歌词</button>
-          <button class="sm primary" id="rpFixAll" disabled>${icon('refresh')}全部补齐</button>
+          <button class="sm" id="rpScan">${icon('search')}重新检测</button>
+          <button class="sm primary" id="rpFixAll">${icon('refresh')}补全全部</button>
         </div>
       </div>
       <details class="hint">
-        <summary>检测口径与修复来源</summary>
+        <summary>补什么 / 怎么补 / 为什么补不了</summary>
         <div class="hint-body">
-          <b>算有封面</b>：文件内嵌图片，或同目录有 <span class="mono">cover.jpg</span>（播放器都能显示）。<br>
-          <b>算有歌词</b>：同名 <span class="mono">.lrc</span> 文件，或文件内嵌歌词标签。<br>
-          <b>修复来源</b>：封面用入库时记录的平台封面地址重新下载；歌词走平台歌词接口。
-          两边都取不到时会计入「无源」，这类只能手动放文件。<br>
-          <b>安全</b>：只补缺失的，已有封面/歌词的文件不会被覆盖。
+          <b>元数据</b>：年份、音轨号、专辑、专辑艺人、封面地址。<b>只补空着的</b>，已有值一律不动。<br>
+          <b>怎么取</b>：用库里记录的<b>平台 ID</b> 直接取权威数据，不做"标题+艺人"搜索，
+          所以不会把现场版配成录音室版。<br>
+          <b>封面/歌词</b>：算"有封面"＝内嵌图片或同目录 <span class="mono">cover.jpg</span>；
+          算"有歌词"＝同名 <span class="mono">.lrc</span> 或内嵌歌词标签。<br>
+          <b>补不了怎么办</b>：平台没有这首歌的数据（下架/无词/本地文件无平台 ID）时，
+          点右侧「忽略」，之后检测不再把它算进缺失。想恢复点「恢复忽略」。
         </div>
       </details>
       <div class="flash" id="rpFlash"></div>
-      <div id="rpBody"><div class="empty"><span class="e-ic">✓</span>点「开始检测」扫描曲库（约 20–60 秒）</div></div>
+      <div id="rpProg" style="display:none;margin:14px 0 6px">
+        <div class="bar"><i id="rpBar" style="width:0%"></i></div>
+        <div class="muted mono" id="rpProgText" style="font-size:11.5px;margin-top:7px">准备中…</div>
+      </div>
+      <div id="rpBody"></div>
     </div>`;
-  setActs('');
-  $('rpScan').onclick = () => startRepairScan();
-  $('rpFixAll').onclick = () => startRepairFix(['cover','lyric'], '全部缺失项');
-  $('rpFixCover').onclick = () => startRepairFix(['cover'], '只补封面');
-  $('rpFixLyric').onclick = () => startRepairFix(['lyric'], '只补歌词');
-  $('msFixYear').onclick = () => startScrape(['year'], '只补年份');
-  $('msFixAll').onclick = () => startScrape(['year','track_no','album','albumartist','cover'], '补全缺失字段');
-  const st = await api('/api/repair/status').catch(()=>null);
-  if(st && st.cached) renderRepairResult(st.cached, st.last_fix);
-  else if(st && st.running) watchRepair();
-  loadScrapeScan();
+  setActs(`<button class="sm" id="rpUnignore">恢复忽略</button>`);
+  $('rpUnignore').onclick = async () => {
+    if(!await askConfirm('恢复所有被忽略的条目？', '之后检测会重新把它们算进缺失。')) return;
+    const r = await api('/api/repair/unignore', {method:'POST'});
+    toast(`已恢复 ${r.cleared} 条`);
+    await refreshRepair(true);
+  };
+  $('rpScan').onclick = () => doRepairScan(true);
+  $('rpFixAll').onclick = () => doRepairFixAll();
+  await refreshRepair(true);
 }};
 
-/* ---- 元数据补全 ---- */
-function renderScrapeScan(r){
-  const c = r.counts || {};
-  const need = (c.year||0) + (c.track_no||0) + (c.album||0) + (c.albumartist||0) + (c.cover||0);
-  const pill = $('msPill');
-  if(pill){
-    pill.innerHTML = r.need
-      ? `缺年份 <b>${c.year||0}</b> · 缺音轨号 <b>${c.track_no||0}</b> · 缺专辑 <b>${c.album||0}</b>`
-      : '元数据齐全';
-    pill.className = 'pill tight' + (r.need ? ' warn' : '');
-  }
-  const last = $('msLast');
-  if(last) last.textContent = `${r.total} 条记录 · 可精确补 ${r.exact} 条 · 本地文件 ${r.search_only} 条（不在范围内）`;
-  const box = $('msBody'); if(!box) return;
-  const items = (r.items || []).filter(x => x.exact);
-  if(!items.length){
-    box.innerHTML = `<div class="empty"><span class="e-ic">✓</span>没有可自动补全的记录</div>`;
-    return;
-  }
-  box.innerHTML = `
-    <div class="muted" style="font-size:12.5px;margin-bottom:6px">
-      共 ${items.length} 条可补${items.length > 200 ? '（下列前 200 条）' : ''}
-    </div>
-    ${items.slice(0, 200).map(t => `
-      <div class="dup-row">
-        ${pBadge(t.provider)}
-        <span style="flex:1;min-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
-          <b>${esc(t.title)}</b> <span class="muted">— ${esc(t.artists)}</span></span>
-        ${t.missing.map(f => `<span class="badge warn">${({year:'缺年份',track_no:'缺音轨号',album:'缺专辑',albumartist:'缺专辑艺人',cover:'缺封面'})[f] || f}</span>`).join('')}
-      </div>`).join('')}`;
-}
-async function loadScrapeScan(){
-  try{
-    const r = await api('/api/scrape/scan');
-    renderScrapeScan(r);
-  }catch(e){
-    const box = $('msBody'); if(box) box.innerHTML = `<div class="empty">检测失败: ${esc(e.message)}</div>`;
-  }
-}
-function msFlash(msg, kind='info'){
-  const el = $('msFlash'); if(!el) return;
-  const ic = {ok:'✓', bad:'!', info:'·', busy:'◌'}[kind] || '·';
-  el.className = 'flash show ' + kind;
-  el.innerHTML = `<span class="f-ic">${ic}</span><span>${esc(msg)}</span>`;
-  clearTimeout(el._h);
-  if(kind !== 'busy') el._h = setTimeout(()=>el.classList.remove('show'), 9000);
-}
-async function startScrape(fields, label){
-  if(!await askConfirm(`开始${label}？`,
-    `只补<b>空着的字段</b>，已有值不会被覆盖。<br>
-     按库里记录的平台 ID 精确取数据，不做搜索匹配。<br>
-     <span style="color:var(--muted)">会同时把新值写回音频文件标签，播放器里才能看到。</span>`,
-    {okText:'开始' })) return;
-  msFlash(`正在${label}…`, 'busy');
-  try{
-    await api('/api/scrape/run', {method:'POST', body: JSON.stringify({fields})});
-    watchScrape();
-  }catch(e){ msFlash('启动失败：' + e.message, 'bad'); }
-}
-function watchScrape(){
-  clearInterval(window._msTimer);
-  window._msTimer = setInterval(async () => {
-    let s;
-    try{ s = await api('/api/scrape/status'); }catch(e){ clearInterval(window._msTimer); return; }
-    if(s.running){
-      const p = s.progress || {};
-      msFlash(p.total ? `处理中 ${p.done}/${p.total} · ${p.current || ''}` : '正在准备…', 'busy');
-      return;
-    }
-    clearInterval(window._msTimer);
-    if(s.error){ msFlash('任务失败：' + s.error, 'bad'); return; }
-    const r = s.result || s.last_run;
-    if(r){
-      const parts = Object.entries(r.by_field || {}).filter(([,v]) => v)
-        .map(([f,v]) => `${({year:'年份',track_no:'音轨号',album:'专辑',albumartist:'专辑艺人',cover:'封面'})[f]||f} +${v}`);
-      msFlash(`完成：更新 ${r.updated} 条` + (parts.length ? `（${parts.join(' · ')}）` : '')
-        + (r.no_source ? ` · 无源 ${r.no_source}` : '')
-        + (r.files_written ? ` · 写入文件 ${r.files_written}` : '')
-        + (r.failed ? ` · 失败 ${r.failed}` : ''), 'ok');
-      if(r.samples && r.samples.length){
-        const box = $('msBody');
-        if(box) box.innerHTML = `<div class="note">本次样例：<br>${r.samples.map(esc).join('<br>')}</div>`;
-      }
-    }
-    if(s.cached) renderScrapeScan(s.cached);
-  }, 1500);
-}
-
-function rpFlash(msg, kind='info'){
+function rpFlash(msg, kind = 'info'){
   const el = $('rpFlash'); if(!el) return;
   const ic = {ok:'✓', bad:'!', info:'·', busy:'◌'}[kind] || '·';
   el.className = 'flash show ' + kind;
   el.innerHTML = `<span class="f-ic">${ic}</span><span>${esc(msg)}</span>`;
   clearTimeout(el._h);
-  if(kind !== 'busy') el._h = setTimeout(()=>el.classList.remove('show'), 8000);
+  if(kind !== 'busy') el._h = setTimeout(() => el.classList.remove('show'), 10000);
 }
-function renderRepairResult(r, lastFix){
+
+function rpProgress(p, label){
+  const box = $('rpProg'); if(!box) return;
+  if(!p || !p.total){ box.style.display = 'none'; return; }
+  box.style.display = '';
+  const pct = Math.min(100, Math.round((p.done || 0) * 100 / p.total));
+  $('rpBar').style.width = pct + '%';
+  $('rpProgText').textContent =
+    `${label} ${p.done || 0}/${p.total}（${pct}%）${p.current ? ' · ' + p.current : ''}`;
+}
+
+/* 把"元数据缺失"和"封面/歌词缺失"合并成一张清单 */
+function renderRepairMerged(scan, rep){
+  const map = new Map();
+  const put = (it) => {
+    const cur = map.get(it.id) || {id: it.id, title: it.title, artists: it.artists,
+                                   provider: it.provider, missing: new Set()};
+    (it.missing || []).forEach(f => cur.missing.add(f));
+    map.set(it.id, cur);
+  };
+  (scan && scan.items || []).filter(x => x.exact).forEach(put);
+  ((rep && rep.cached && rep.cached.items) || []).forEach(put);
+
+  const rows = [...map.values()].filter(x => x.missing.size);
+  const metaNeed = (scan && scan.need) || 0;
+  const scanned = !!(rep && rep.cached);          // 封面/歌词是否已检测过
+  const covNeed = scanned ? (rep.cached.missing_cover || 0) : null;
+  const lyrNeed = scanned ? (rep.cached.missing_lyric || 0) : null;
+
   const pill = $('rpPill');
-  const need = (r.missing_cover || 0) + (r.missing_lyric || 0);
   if(pill){
-    pill.innerHTML = need
-      ? `缺封面 <b>${r.missing_cover}</b> · 缺歌词 <b>${r.missing_lyric}</b>`
-      : '全部齐全';
-    pill.className = 'pill tight' + (need ? ' warn' : '');
+    const show = (v) => v === null ? '<span class="muted">未检测</span>' : `<b>${v}</b>`;
+    pill.innerHTML = `待补 <b>${metaNeed}</b> 首 · 缺封面 ${show(covNeed)} · 缺歌词 ${show(lyrNeed)}`;
+    const warn = metaNeed > 0 || (covNeed || 0) > 0 || (lyrNeed || 0) > 0;
+    pill.className = 'pill tight' + (warn ? ' warn' : '');
   }
-  const last = $('rpLast');
-  if(last && r.scanned_at) last.textContent = `检查 ${r.checked} 个文件 · 耗时 ${r.elapsed}s`;
-  const btnAll = $('rpFixAll'), btnC = $('rpFixCover'), btnL = $('rpFixLyric');
-  if(btnAll) btnAll.disabled = !need;
-  if(btnC) btnC.disabled = !(r.missing_cover > 0);
-  if(btnL) btnL.disabled = !(r.missing_lyric > 0);
+  const ig = $('rpIgnored');
+  const ignCount = (rep && rep.ignored) || 0;
+  if(ig){
+    ig.style.display = ignCount ? '' : 'none';
+    ig.textContent = `已忽略 ${ignCount} 条`;
+  }
+
   const box = $('rpBody'); if(!box) return;
-  const items = r.items || [];
-  if(!items.length && !(lastFix && lastFix.total)){
-    box.innerHTML = `<div class="empty"><span class="e-ic">✓</span>曲库很干净：${r.checked} 个文件都有封面和歌词</div>`;
+  if(!rows.length){
+    box.innerHTML = `<div class="empty"><span class="e-ic">✓</span>没有需要补的条目</div>`;
     return;
   }
-  let head = '';
-  if(lastFix && lastFix.total){
-    const fixed = (lastFix.fixed_cover || 0) + (lastFix.fixed_lyric || 0);
-    if(fixed || lastFix.no_source){
-      head = `<div class="flash show ok" style="margin-bottom:12px;align-items:flex-start">
-        <span class="f-ic">✓</span>
-        <span>上一轮补齐：<b>封面 +${lastFix.fixed_cover || 0}</b> · <b>歌词 +${lastFix.fixed_lyric || 0}</b>
-        ${lastFix.no_source ? ` · <b>${lastFix.no_source}</b> 项平台取不到资源` : ''}</span></div>`;
-      if(lastFix.no_source_names && lastFix.no_source_names.length){
-        head += `<div class="note">这些不是没修，是平台侧确实没有对应资源（现场版/冷门歌常见），
-          只能手动找图/歌词放进去：<br>${lastFix.no_source_names.slice(0, 12).map(esc).join('<br>')}
-          ${lastFix.no_source_names.length > 12 ? '<br>…' : ''}</div>`;
-      }
-    }
-  }
-  if(!items.length){
-    box.innerHTML = head + `<div class="empty"><span class="e-ic">✓</span>现在全部齐全了（${r.checked} 个文件）</div>`;
-    return;
-  }
-  const rows = items.slice(0, 300).map(t => `
-    <div class="dup-row">
-      ${pBadge(t.provider)}
-      <span style="flex:1;min-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
-        <b>${esc(t.title)}</b> <span class="muted">— ${esc(t.artists)}</span></span>
-      ${t.missing.includes('cover') ? '<span class="badge warn">缺封面</span>' : ''}
-      ${t.missing.includes('lyric') ? '<span class="badge warn">缺歌词</span>' : ''}
-      <span class="p" title="${esc(t.path)}">${esc(t.path)}</span>
-    </div>`).join('');
-  box.innerHTML = head + `
-    <div class="muted" style="font-size:12.5px;margin-bottom:6px">
-      共 ${items.length} 首需要处理${items.length > 300 ? '（下面只列前 300 首，补齐按钮会处理全部）' : ''}
-    </div>${rows}`;
+  box.innerHTML = `
+    ${scanned ? '' : `<div class="note" style="margin:0 0 10px">
+      封面 / 歌词还没检测过 —— 点右上角「重新检测」扫一遍全库（约 20–60 秒）。
+    </div>`}
+    <div class="muted mono" style="font-size:11.5px;margin:4px 0 8px">
+      共 ${rows.length} 首待处理${rows.length > 300 ? '（下列前 300 首）' : ''}
+    </div>
+    ${rows.slice(0, 300).map(r => {
+      const kinds = [];
+      if([...r.missing].some(f => f !== 'cover' && f !== 'lyric')) kinds.push('meta');
+      if(r.missing.has('cover')) kinds.push('cover');
+      if(r.missing.has('lyric')) kinds.push('lyric');
+      return `<div class="dup-row" data-row="${r.id}">
+        ${pBadge(r.provider)}
+        <span style="flex:1 1 220px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+          <b>${esc(r.title)}</b> <span class="muted">— ${esc(r.artists)}</span></span>
+        ${[...r.missing].map(f => `<span class="badge warn">${RP_LABEL[f] || f}</span>`).join('')}
+        <button class="sm ghost" data-ignore="${r.id}" data-kinds="${kinds.join(',')}">忽略</button>
+      </div>`;
+    }).join('')}`;
+
+  box.querySelectorAll('[data-ignore]').forEach(btn => btn.onclick = async () => {
+    const id = Number(btn.dataset.ignore);
+    const kinds = btn.dataset.kinds.split(',').filter(Boolean);
+    const row = btn.closest('[data-row]');
+    if(row) row.style.opacity = '.4';
+    try{
+      await api('/api/repair/ignore', {method:'POST',
+        body: JSON.stringify({ids: [id], kinds})});
+      if(row) row.remove();
+      toast('已忽略，之后检测不再提示');
+    }catch(e){ toast('失败: ' + e.message); if(row) row.style.opacity = ''; }
+  });
 }
-function watchRepair(keepFlash){
-  clearInterval(window._rpTimer);
-  window._rpTimer = setInterval(async () => {
-    let s;
-    try{ s = await api('/api/repair/status'); }catch(e){ clearInterval(window._rpTimer); return; }
-    if(s.running){
-      const p = s.progress || {};
-      if(s.mode === 'fix' && p.total){
-        rpFlash(`${s.mode === 'fix' ? '补齐中' : '扫描中'} ${p.done}/${p.total} · ${p.current || ''}`, 'busy');
-      }else{
-        rpFlash(s.mode === 'fix' ? '正在补齐…' : '正在扫描曲库（读每个文件的标签）…', 'busy');
-      }
-      return;
-    }
-    clearInterval(window._rpTimer);
-    if(s.error){ rpFlash('任务失败：' + s.error, 'bad'); return; }
-    if(s.mode === 'fix' && s.result){
-      const r = s.result;
-      rpFlash(`补齐完成：封面 +${r.fixed_cover} · 歌词 +${r.fixed_lyric}`
-        + (r.no_source ? ` · ${r.no_source} 项平台无资源` : '')
-        + (r.failed ? ` · 失败 ${r.failed}` : ''), 'ok');
-      startRepairScan(true, true);   // 修完自动重扫, 界面上会保留"上一轮补齐结果"
-      return;
-    }
-    if(s.result){
-      renderRepairResult(s.result, s.last_fix);
-      const need = (s.result.missing_cover || 0) + (s.result.missing_lyric || 0);
-      if(!keepFlash) rpFlash(need ? `检测完成：${s.result.items.length} 首缺东西` : '检测完成：全部齐全', need ? 'info' : 'ok');
-    }
-  }, 1500);
+
+async function refreshRepair(showBusy){
+  if(showBusy) rpFlash('正在读取…', 'busy');
+  let scan = null, rep = null;
+  try{ scan = await api('/api/scrape/scan'); }catch(e){}
+  try{ rep = await api('/api/repair/status'); }catch(e){}
+  renderRepairMerged(scan, rep);
+  const busy = (rep && rep.running) || false;
+  if(busy){
+    rpFlash(rep.mode === 'scan' ? '正在检测封面/歌词…' : '正在补封面/歌词…', 'busy');
+    watchRepairBusy();
+  }else if(rep && rep.error){
+    rpFlash('体检失败：' + rep.error, 'bad');
+  }else if(showBusy){
+    const el = $('rpFlash');
+    if(el) el.classList.remove('show');
+  }
 }
-async function startRepairScan(keepFlash, keepFlashAfter){
-  if(!keepFlash) rpFlash('正在扫描曲库…', 'busy');
-  const btn = $('rpScan'); const done = busyBtn(btn, '扫描中…');
+
+async function doRepairScan(verbose){
+  if(verbose && !await askConfirm('重新检测全库？',
+      '会逐个打开音频文件读封面/歌词标签，2500 首要几十秒。元数据部分直接查库，很快。')) return;
   try{
     await api('/api/repair/scan', {method:'POST'});
-    done();
-    watchRepair(keepFlashAfter);
-  }catch(e){ rpFlash('启动失败：' + e.message, 'bad'); done(); }
-}
-async function startRepairFix(kinds, label){
-  const target = label === '全部缺失项' ? '所有缺失的封面和歌词' : label.replace('只补', '所有缺失的');
-  if(!await askConfirm(`开始${label}？`,
-    `将补齐<b>${target}</b>，已存在的一律不覆盖。<br>
-     文件多的库可能要几分钟，期间可以留在本页看进度。<br>
-     <span style="color:var(--muted)">平台侧取不到资源的会单独列出来，不会算作失败。</span>`,
-    {okText:'开始补齐'})) return;
-  rpFlash(`正在${label}…`, 'busy');
-  try{
-    await api('/api/repair/fix', {method:'POST', body: JSON.stringify({kinds})});
-    watchRepair(true);
+    rpFlash('正在检测…', 'busy');
+    watchRepairBusy(() => refreshRepair(false));
   }catch(e){ rpFlash('启动失败：' + e.message, 'bad'); }
+}
+
+/* 补全全部：先元数据（快），再封面/歌词（慢），中间都给进度 */
+async function doRepairFixAll(){
+  if(!await askConfirm('补全全部缺失？',
+      `会依次执行：<br>① 元数据（年份/音轨号/专辑/封面地址）<br>② 封面 / 歌词<br>
+       <span style="color:var(--muted)">只补空着的，已有值不会被覆盖；补不了的可随时「忽略」。</span>`,
+      {okText:'开始补全'})) return;
+  try{
+    await api('/api/scrape/run', {method:'POST',
+      body: JSON.stringify({fields: RP_META_FIELDS})});
+  }catch(e){ rpFlash('元数据任务启动失败：' + e.message, 'bad'); return; }
+  rpFlash('① 正在补元数据…', 'busy');
+  await waitJob('/api/scrape/status', '元数据', () => {});
+  rpFlash('② 正在补封面 / 歌词…', 'busy');
+  try{
+    await api('/api/repair/fix', {method:'POST',
+      body: JSON.stringify({kinds: ['cover', 'lyric']})});
+  }catch(e){ rpFlash('封面/歌词任务启动失败：' + e.message, 'bad'); return; }
+  const last = await waitJob('/api/repair/status', '封面/歌词', () => {});
+  const res = (last && (last.result || last.last_fix)) || {};
+  rpFlash(`完成：封面 +${res.fixed_cover || 0} · 歌词 +${res.fixed_lyric || 0}`
+    + (res.no_source ? ` · 无源 ${res.no_source}` : '')
+    + (res.failed ? ` · 失败 ${res.failed}` : ''), 'ok');
+  await refreshRepair(false);
+}
+
+/* 轮询一个后台任务直到结束, 期间更新进度条 */
+function waitJob(url, label, onTick){
+  return new Promise(resolve => {
+    const started = Date.now();
+    const timer = setInterval(async () => {
+      let s;
+      try{ s = await api(url); }catch(e){ clearInterval(timer); resolve(null); return; }
+      if(s.running){
+        rpProgress(s.progress, label);
+        onTick && onTick(s);
+        if(Date.now() - started > 30 * 60 * 1000){ clearInterval(timer); resolve(s); }
+        return;
+      }
+      clearInterval(timer);
+      rpProgress(null);
+      resolve(s);
+    }, 1200);
+  });
+}
+
+async function watchRepairBusy(after){
+  clearTimeout(window._rpTimer);
+  const tick = async () => {
+    let s;
+    try{ s = await api('/api/repair/status'); }catch(e){ return; }
+    if(s.running){
+      rpProgress(s.progress, s.mode === 'scan' ? '检测中' : '补齐中');
+      rpFlash(s.mode === 'scan' ? '正在检测封面/歌词…' : '正在补封面/歌词…', 'busy');
+      window._rpTimer = setTimeout(tick, 1200);
+      return;
+    }
+    rpProgress(null);
+    if(s.error){ rpFlash('体检失败：' + s.error, 'bad'); return; }
+    if(after) await after();
+    else await refreshRepair(false);
+  };
+  window._rpTimer = setTimeout(tick, 800);
 }
 
 /* ================= 页面: 运行日志 ================= */

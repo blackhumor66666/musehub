@@ -134,6 +134,30 @@ class TestSettings(unittest.TestCase):
         self.assertNotIn("qq.cookie", keys, "旧的单账号 Cookie 不该再出现在面板上")
         self.assertIn("qq.accounts", keys)
 
+
+    def test_raw_cookie_line_is_not_split(self) -> None:
+        """直接粘贴整行 Cookie 时不能按第一个 = 拆开(线上踩过: 账号名变成 pgv_pvid)."""
+        raw = "pgv_pvid=2423591868; fqm_pvqid=b6ff; qm_keyst=W_X_abc; qqmusic_key=W_X_abc"
+        accs = S.parse_accounts(raw)
+        self.assertEqual(len(accs), 1)
+        self.assertEqual(accs[0][0], "默认")
+        self.assertEqual(accs[0][1], raw, "整行 Cookie 必须原样保留")
+
+    def test_named_account_still_works(self) -> None:
+        raw = "我=MUSIC_U=deadbeef; __csrf=abc\n小号=MUSIC_U=zzz"
+        accs = S.parse_accounts(raw)
+        self.assertEqual([a[0] for a in accs], ["我", "小号"])
+        self.assertEqual(accs[0][1], "MUSIC_U=deadbeef; __csrf=abc")
+
+    def test_legacy_split_account_is_normalized(self) -> None:
+        """老数据(账号名=pgv_pvid)启动时要自动纠正成 默认=整行Cookie."""
+        db = self.ctx.db
+        db.kv_set("cfg:qq.accounts", "默认=pgv_pvid=2423591868; qm_keyst=K")
+        S.load_into(self.ctx.cfg, db)
+        accs = S.parse_accounts(db.kv_get("cfg:qq.accounts", ""))
+        self.assertEqual(accs[0][0], "默认")
+        self.assertEqual(accs[0][1], "pgv_pvid=2423591868; qm_keyst=K")
+
     def test_persist_across_restart(self) -> None:
         S.save(self.ctx.cfg, self.ctx.db, {
             "netease.cookie": "MUSIC_U=persist",

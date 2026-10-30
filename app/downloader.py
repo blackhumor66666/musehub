@@ -37,11 +37,24 @@ class Downloader:
         self._session = requests.Session()
         self._session.headers.update({"User-Agent": UA})
 
+    def _download_provider(self, platform: str):
+        """下载固定用该平台的"下载账号"(通常是会员账号), 与歌单由谁订阅无关.
+
+        这样多账号订阅时, 不会因为某个账号没会员就下不了歌。
+        """
+        sec = getattr(self.cfg, platform, None)
+        acct = (getattr(sec, "download_account", "") or "").strip()
+        if acct:
+            p = self.providers.get(f"{platform}:{acct}")
+            if p is not None:
+                return p
+        return self.providers.get(platform)
+
     # ---------- 对外 ----------
     def fetch(self, provider_name: str, track: RemoteTrack,
               on_progress=None) -> tuple[Path, DownloadSource]:
         """下载到 staging, 返回 (本地文件, 音源信息). 失败抛 DownloadError."""
-        provider = self.providers.get(provider_name)
+        provider = self._download_provider(provider_name)
         if provider is None:
             raise DownloadError(f"未知平台 {provider_name}")
 

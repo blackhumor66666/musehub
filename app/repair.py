@@ -73,6 +73,9 @@ def scan(db: Any, cfg: Any) -> dict:
            FROM tracks WHERE status='active' AND path<>'' ORDER BY id""")]
     items: list[dict] = []
     checked = miss_cover = miss_lyric = gone = 0
+    ign = db.ignored_ids()
+    ign_cover = ign.get("cover", set())
+    ign_lyric = ign.get("lyric", set())
     for r in rows:
         f = cfg.music_dir / r["path"]
         if not f.exists():
@@ -81,10 +84,12 @@ def scan(db: Any, cfg: Any) -> dict:
         checked += 1
         audio = _open(f)
         missing: list[str] = []
-        if not has_cover(audio, f):
+        tid = int(r["id"])
+        # 用户点过"忽略"的不再计入缺失, 否则每次检测都刷同一批
+        if tid not in ign_cover and not has_cover(audio, f):
             missing.append("cover")
             miss_cover += 1
-        if not has_lyric(audio, f):
+        if tid not in ign_lyric and not has_lyric(audio, f):
             missing.append("lyric")
             miss_lyric += 1
         if missing:
@@ -137,6 +142,8 @@ def fix(ctx: Any, ids: Iterable[int] | None = None,
 
     out = {"fixed_cover": 0, "fixed_lyric": 0, "no_source": 0,
            "no_source_names": [], "skipped": 0, "failed": 0, "total": len(rows)}
+    _ign = db.ignored_ids()
+    ign_cover, ign_lyric = _ign.get("cover", set()), _ign.get("lyric", set())
     for idx, r in enumerate(rows, 1):
         label = f"{r['artists']} - {r['title']}"
         f = cfg.music_dir / r["path"]
@@ -144,8 +151,11 @@ def fix(ctx: Any, ids: Iterable[int] | None = None,
             out["skipped"] += 1
             continue
         audio = _open(f)
-        need_cover = "cover" in want and not has_cover(audio, f)
-        need_lyric = "lyric" in want and not has_lyric(audio, f)
+        tid = int(r["id"])
+        need_cover = ("cover" in want and tid not in ign_cover
+                      and not has_cover(audio, f))
+        need_lyric = ("lyric" in want and tid not in ign_lyric
+                      and not has_lyric(audio, f))
         if not need_cover and not need_lyric:
             out["skipped"] += 1
             continue

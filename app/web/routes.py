@@ -563,7 +563,29 @@ def create_app(ctx: Context) -> FastAPI:
     @app.get("/api/repair/status")
     def repair_status(_: None = Depends(auth)) -> JSONResponse:
         return JSONResponse({**_repair, "cached": _repair_cache["scan"],
-                             "last_fix": _repair_cache["fix"]})
+                             "last_fix": _repair_cache["fix"],
+                             "ignored": ctx.db.ignored_count()})
+
+    @app.post("/api/repair/ignore")
+    async def repair_ignore(request: Request, _: None = Depends(auth)) -> JSONResponse:
+        """忽略补不了的条目, 之后检测不再提示. kinds: cover/lyric/meta."""
+        body = await request.json()
+        ids = [int(i) for i in (body.get("ids") or [])]
+        kinds = [k for k in (body.get("kinds") or ["cover", "lyric"])
+                 if k in ("cover", "lyric", "meta")]
+        if not ids or not kinds:
+            raise HTTPException(400, "缺少 ids 或 kinds")
+        for k in kinds:
+            ctx.db.ignore_items(k, ids)
+        _repair_cache["scan"] = None      # 让前端重新扫描时拿到干净结果
+        return JSONResponse({"ok": True, "ignored": ctx.db.ignored_count()})
+
+    @app.post("/api/repair/unignore")
+    def repair_unignore(kind: str = "", _: None = Depends(auth)) -> JSONResponse:
+        """取消忽略; kind 为空表示全部恢复."""
+        n = ctx.db.clear_ignored(kind)
+        _repair_cache["scan"] = None
+        return JSONResponse({"ok": True, "cleared": n})
 
     @app.post("/api/repair/fix")
     async def repair_fix(request: Request, _: None = Depends(auth)) -> JSONResponse:

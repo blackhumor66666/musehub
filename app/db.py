@@ -100,6 +100,14 @@ CREATE TABLE IF NOT EXISTS events (
     meta    TEXT NOT NULL DEFAULT '{}'
 );
 CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts DESC);
+-- 体检里"补不了"的条目: 用户点忽略后不再重复提示
+-- kind: cover / lyric / meta
+CREATE TABLE IF NOT EXISTS ignored (
+    kind       TEXT NOT NULL,
+    track_id   INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (kind, track_id)
+);
 
 CREATE TABLE IF NOT EXISTS sync_runs (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -232,6 +240,33 @@ class Database:
             "INSERT INTO kv(key, value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
             (key, value),
         )
+
+    # ---------- 体检忽略清单 ----------
+    def ignore_items(self, kind: str, track_ids: Iterable[int]) -> int:
+        ids = [int(i) for i in track_ids]
+        if not ids:
+            return 0
+        ts = now_iso()
+        with self.tx() as conn:
+            conn.executemany(
+                "INSERT OR IGNORE INTO ignored(kind, track_id, created_at) VALUES(?,?,?)",
+                [(kind, i, ts) for i in ids],
+            )
+        return len(ids)
+
+    def ignored_ids(self) -> dict[str, set[int]]:
+        out: dict[str, set[int]] = {}
+        for r in self.query("SELECT kind, track_id FROM ignored"):
+            out.setdefault(r["kind"], set()).add(int(r["track_id"]))
+        return out
+
+    def ignored_count(self) -> int:
+        return int(self.scalar("SELECT COUNT(*) FROM ignored", (), 0))
+
+    def clear_ignored(self, kind: str = "") -> int:
+        if kind:
+            return int(self.execute("DELETE FROM ignored WHERE kind=?", (kind,)).rowcount or 0)
+        return int(self.execute("DELETE FROM ignored").rowcount or 0)
 
     # ---------- events ----------
     def log(self, level: str, source: str, message: str, **meta: Any) -> None:

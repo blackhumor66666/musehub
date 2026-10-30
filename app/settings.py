@@ -109,10 +109,16 @@ Field("netease.cookie", "platform", "网易云 Cookie(旧字段)", "cookie",
       hidden=True)
 Field("netease.accounts", "platform", "网易云账号（支持多账号）", "accounts",
       "每行一个账号：昵称=Cookie。例如:\n我=MUSIC_U=xxx; __csrf=yyy\n老婆=MUSIC_U=zzz\n"
-      "两口子的歌单都可以订阅；收藏/取消收藏会用歌单所属账号执行。只填一行 = 单账号。")
+      "**账号只负责「读歌单」**：谁有权限读哪个歌单就订阅谁；下载统一走下面的「下载账号」，"
+      "所以只有会员账号需要长期有效。只填一行 = 单账号。")
 Field("qq.accounts", "platform", "QQ 音乐账号（支持多账号）", "accounts",
-      "每行一个账号：昵称=Cookie。两口子的歌单都可以订阅。"
+      "每行一个账号：昵称=Cookie。多账号只影响「能读到哪些歌单」，下载统一走「下载账号」。"
       "取消收藏走 fcg_music_del2songdir 接口，平台拒绝时会进入待处理队列并告警。")
+Field("qq.download_account", "platform", "QQ 下载账号（填昵称）", "text",
+      "填哪个账号负责取音源，留空 = 第一个。**建议填有绿钻的账号**；"
+      "小号只用来订阅歌单时，这里填会员账号即可，小号过期也不影响下载。")
+Field("netease.download_account", "platform", "网易云下载账号（填昵称）", "text",
+      "填哪个账号负责取音源，留空 = 第一个。填有黑胶会员的账号。")
 Field("netease.max_quality", "platform", "网易云下载音质上限", "quality",
       "按网易云 App 里的叫法选择。选「无损音质」表示优先下无损；某首歌没有无损时自动降到极高 → 较高 → 标准。",
       options=NETEASE_LEVELS)
@@ -153,6 +159,16 @@ Field("notify.webhook_url", "notify", "Webhook 地址", "text",
       "可接 n8n、自建服务、企业微信中转。"
       "注：不需要绕 Emby —— 收藏增删、洗版、回推这些事件 Emby 根本看不到，直连更准。",
       placeholder="http://192.168.5.13:5678/webhook/musehub")
+Field("notify.wecom_url", "notify", "企业微信群机器人 Webhook", "text",
+      "企业微信群 → 右上角 … → 群机器人 → 添加 → 复制 Webhook 地址。")
+Field("notify.dingtalk_url", "notify", "钉钉群机器人 Webhook", "text",
+      "钉钉群 → 群设置 → 机器人 → 添加自定义机器人。安全设置若选「加签」，把密钥也填上。")
+Field("notify.dingtalk_secret", "notify", "钉钉加签密钥(可选)", "text",
+      "安全设置选「加签」时必填，形如 SECxxxxx。")
+Field("notify.feishu_url", "notify", "飞书群机器人 Webhook", "text",
+      "飞书群 → 设置 → 群机器人 → 添加自定义机器人。")
+Field("notify.feishu_secret", "notify", "飞书签名密钥(可选)", "text",
+      "开启「签名校验」时必填。")
 Field("notify.verbose_tracks", "notify", "逐首列出新入库歌曲", "bool",
       "开 = 消息里列出歌名；关 = 只报「新入库 N 首」。回填几百首时建议关掉。")
 Field("notify.playlist_changes", "notify", "歌单增删", "bool",
@@ -227,19 +243,40 @@ _LEGACY_KEYS = {"sync.dry_run": "dry_run", "sync.delete_policy": "delete_policy"
 _ATTR_ALIASES = {"web.password": "web_password"}
 
 # ---------------- 多账号 ----------------
+# Cookie 里常见的键名。用来判断"这一行是裸 Cookie"还是"昵称=Cookie"。
+# 踩过的坑: 用户直接粘贴整行 Cookie(pgv_pvid=...; qm_keyst=...) 时,
+# 旧逻辑按第一个 "=" 拆成 name="pgv_pvid"、cookie="2423591868; ...",
+# 结果账号名变成 pgv_pvid, Cookie 也被截断。
+COOKIE_KEY_HINTS = {
+    "pgv_pvid", "music_u", "music_a", "__csrf", "qm_keyst", "qqmusic_key",
+    "uin", "wxuin", "p_uin", "luin", "_ntes_nnid", "nmtid", "fqm_pvqid",
+    "fqm_sessionid", "_qimei_uuid42", "psrf_qqopenid", "psrf_qqaccess_token",
+    "euin", "pgv_info", "qqmusic_key_", "login_type",
+}
+
+
+def _starts_with_cookie_key(line: str) -> bool:
+    head = line.split("=", 1)[0].strip().lower()
+    return head in COOKIE_KEY_HINTS
+
+
 def parse_accounts(raw: str) -> list[tuple[str, str]]:
-    """每行一个账号: 昵称=Cookie(没有=则整行当 Cookie, 昵称自动编号)."""
+    """每行一个账号: 昵称=Cookie; 直接贴整行 Cookie 也能识别(自动命名)."""
     out: list[tuple[str, str]] = []
     for line in str(raw or "").splitlines():
         line = line.strip()
         if not line:
             continue
-        if "=" in line:
+        if _starts_with_cookie_key(line):
+            # 裸 Cookie: 整行都是凭据, 不能按第一个 "=" 拆
+            name = "默认" if not out else f"账号{len(out) + 1}"
+            cookie = line
+        elif "=" in line:
             name, _, cookie = line.partition("=")
-            name = name.strip() or f"账号{len(out) + 1}"
+            name = name.strip() or ("默认" if not out else f"账号{len(out) + 1}")
             cookie = cookie.strip()
         else:
-            name, cookie = f"账号{len(out) + 1}", line
+            name, cookie = ("默认" if not out else f"账号{len(out) + 1}"), line
         if cookie:
             out.append((name, cookie))
     return out
@@ -297,7 +334,12 @@ def load_into(cfg: Any, db: Any) -> list[str]:
         ck_f = FIELDS_BY_KEY.get(f"{prov}.cookie")
         if acc_f is None or ck_f is None:
             continue
-        if (db.kv_get(kv_key(acc_f), "") or "").strip():
+        raw_acc = (db.kv_get(kv_key(acc_f), "") or "").strip()
+        if raw_acc:
+            # 规范化: 老数据里"裸 Cookie"曾被误拆成 账号名=pgv_pvid/..., 这里纠正回来
+            norm = render_accounts(parse_accounts(raw_acc))
+            if norm and norm != raw_acc:
+                db.kv_set(kv_key(acc_f), norm)
             continue
         legacy = (db.kv_get(kv_key(ck_f), "") or "").strip()
         if legacy:
@@ -491,6 +533,21 @@ def apply_runtime(ctx: Any, changed: list[str]) -> list[str]:
             p.reload()
         except Exception as exc:  # noqa: BLE001
             warnings.append(f"{p.display} 重新加载失败: {exc}")
+
+    # 改了账号相关配置: 会员状态与登录态缓存必须作废, 否则面板会继续显示旧结论
+    # (线上踩过: 换了新 Cookie, 界面还挂着"Cookie 已过期"最长 1 小时)
+    touched_platforms = {k.split(".", 1)[0] for k in changed
+                         if k.split(".", 1)[0] in ("netease", "qq")}
+    for plat in touched_platforms:
+        ctx.db.kv_set(f"vip:{plat}", "")
+    if touched_platforms:
+        try:
+            ctx.db.kv_set("cookie_health", "")
+            import threading
+            threading.Thread(target=ctx.check_cookies, kwargs={"alert": False},
+                             daemon=True, name="cookie-recheck").start()
+        except Exception as exc:  # noqa: BLE001 - 体检失败不该阻塞保存
+            warnings.append(f"登录态重新检查失败: {exc}")
 
     if any(k.startswith("navidrome.") for k in changed):
         ctx.navidrome.reconfigure()

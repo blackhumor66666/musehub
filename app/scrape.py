@@ -49,7 +49,10 @@ def scan(db: Any) -> dict:
     counts = {f: 0 for f in FIELDS}
     items: list[dict] = []
     exact = search_only = 0
+    ignored_meta = db.ignored_ids().get("meta", set())
     for r in rows:
+        if int(r["id"]) in ignored_meta:
+            continue
         need = [f for f in FIELDS if _is_empty(r, f)]
         if not need:
             continue
@@ -66,7 +69,8 @@ def scan(db: Any) -> dict:
             "missing": need, "exact": ok,
         })
     return {
-        "total": len(rows), "need": len(items), "exact": exact,
+        "total": len(rows),
+        "ignored": len(ignored_meta), "need": len(items), "exact": exact,
         "search_only": search_only, "counts": counts,
         "items": items, "scanned_at": now_iso(),
     }
@@ -173,7 +177,11 @@ def run(ctx: Any, ids: Iterable[int] | None = None, fields: Iterable[str] = FIEL
 
     # ---- 阶段 1: 先筛出真正需要补的曲目(纯查库, 很快) ----
     tasks: list[tuple[dict, list[str], Any]] = []
+    ignored_meta = db.ignored_ids().get("meta", set())
     for r in rows:
+        if int(r["id"]) in ignored_meta:
+            stats["skipped"] += 1
+            continue
         need = [f for f in want if _is_empty(r, f)]
         if not need:
             stats["skipped"] += 1
