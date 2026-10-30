@@ -645,7 +645,7 @@ PAGES.dashboard = { title:'仪表盘', sub:'系统总览：曲库、同步与下
           <p>${esc(s2.d)}</p>${s2.a}</div>`).join('')}
       <div class="step" style="flex:0 0 230px;background:#fdf7ec;border-color:#f0dcb4">
         <b>🧪 试运行中</b><p>只观察不执行：不下载、不删除、不回推收藏。日志会给「将要做的事」清单。</p>
-        <a href="javascript:toggleDry()">切到实盘 →</a></div>
+        <a href="javascript:toggleDry()">切到正式运行 →</a></div>
     </div></div>` : ''}
 
     <div class="card" style="margin-bottom:16px">
@@ -796,11 +796,11 @@ PAGES.dashboard = { title:'仪表盘', sub:'系统总览：曲库、同步与下
 }};
 
 async function toggleDry(){
-  if(!await askConfirm('切换到实盘？',
-    '切到实盘后，会<b>真实下载文件</b>、并按删除策略清理本地文件。确定继续吗？',
-    {okText:'切到实盘', danger:true})) return;
+  if(!await askConfirm('切换到正式运行？',
+    '切换后，会<b>真实下载文件</b>、并按删除策略清理本地文件。确定继续吗？',
+    {okText:'切换到正式运行', danger:true})) return;
   await api('/api/mode', {method:'POST', body: JSON.stringify({dry_run:false})});
-  toast('已切到实盘'); render();
+  toast('已切换到正式运行'); render();
 }
 window.toggleDry = toggleDry;
 
@@ -915,7 +915,7 @@ function renderLive(live){
 
 /* ================= 页面: 歌单同步 ================= */
 function s2(n){ return (n||0).toLocaleString(); }
-/* ---------- 重复/洗版 页的交互小工具 ---------- */
+/* ---------- 重复文件(去重) 的交互小工具 ---------- */
 function busyBtn(btn, label){
   if(!btn) return ()=>{};
   const html = btn.innerHTML, wasDisabled = btn.disabled;
@@ -979,22 +979,22 @@ async function emptyTrash(){
 }
 async function upgradeAll(){
   const btn = $('dupUpgrade');
-  if(!await askConfirm('一键洗版全部？',
+  if(!await askConfirm('一键去重全部重复文件？',
     `每首歌<b>保留音质最好的文件</b>（按真实位深/采样率/码率评判），<br>
      差音质文件移入回收目录 <span class="mono">.musehub_trash</span>（可找回），<br>
      平台收藏和歌单完全不受影响。`,
-    {okText:'开始洗版'})) return;
-  const done = busyBtn(btn, '洗版中…');
-  dupFlash('正在洗版，文件多的库可能需要一会儿…', 'busy');
+    {okText:'开始去重'})) return;
+  const done = busyBtn(btn, '去重中…');
+  dupFlash('正在去重，文件多的库可能需要一会儿…', 'busy');
   try{
     const r = await api('/api/duplicates/upgrade-all', {method:'POST'});
-    dupFlash(`洗版完成：${r.groups} 组 · 移除 ${r.removed_files} 个差文件 · 释放 ${fmtSize(r.bytes_freed)}`, 'ok');
-    toast(`洗版完成：移除 ${r.removed_files} 个文件，释放 ${fmtSize(r.bytes_freed)}`);
+    dupFlash(`去重完成：${r.groups} 组 · 移除 ${r.removed_files} 个重复文件 · 释放 ${fmtSize(r.bytes_freed)}`, 'ok');
+    toast(`去重完成：移除 ${r.removed_files} 个文件，释放 ${fmtSize(r.bytes_freed)}`);
     await loadTrashPill();
     scanDuplicates({keepFlash:true});
   }catch(e){
-    dupFlash('洗版失败：' + e.message, 'bad');
-    toast('洗版失败: ' + e.message);
+    dupFlash('去重失败：' + e.message, 'bad');
+    toast('去重失败: ' + e.message);
   }finally{ done(); }
 }
 function renderPlTable(rows){
@@ -1078,7 +1078,7 @@ async function scanDuplicates(opts){
         toast(`已保留最佳音质，移除 ${r.removed_files} 个差文件`);
         await loadTrashPill();
         scanDuplicates({keepFlash:true});
-      }catch(e){ dupFlash('洗版失败：' + e.message, 'bad'); done(); }
+      }catch(e){ dupFlash('去重失败：' + e.message, 'bad'); done(); }
     });
     box.querySelectorAll('[data-dupdel]').forEach(btn => btn.onclick = async () => {
       const g = groups[btn.dataset.dupdel];
@@ -1151,8 +1151,23 @@ async function showPlaylistDetail(id){
 
 /* ================= 页面: 歌单订阅 ================= */
 PAGES.subscriptions = { title:'歌单订阅', sub:'支持歌单、专辑、榜单三种订阅，自动同步下载', async render(){
-  setActs(`<button class="sm" id="ndAcctBtn">${icon('settings')}播放器账号</button>`);
+  setActs(`<button class="sm" id="ndAcctBtn">${icon('settings')}播放器账号</button>
+    <button class="sm" id="ndSync">${icon('play')}同步到播放器</button>
+    <button class="primary" id="plSync">${icon('refresh')}立即同步</button>`);
   $('ndAcctBtn').onclick = showNdAccounts;
+  $('plSync').onclick = async () => {
+    const r = await api('/api/sync', {method:'POST'}).catch(e => ({error: e.message}));
+    toast(r.error ? '同步失败: ' + r.error
+      : (r.started ? '同步已开始，可到「下载任务」看进度' : '已在同步中'));
+  };
+  $('ndSync').onclick = async (ev) => {
+    const btn = ev.currentTarget; btn.disabled = true;
+    try{
+      const r = await api('/api/navidrome/sync', {method:'POST'});
+      toast(r.started ? '正在把歌单推到播放器，稍后看运行日志' : (r.error || '未能开始'));
+    }catch(e){ toast('失败: ' + e.message); }
+    finally{ setTimeout(()=>{ btn.disabled = false; }, 3000); }
+  };
   $('page').innerHTML = `
     <div class="card" style="margin-bottom:14px">
       <div class="row-form">
@@ -1751,7 +1766,7 @@ async function watchRepairBusy(after){
   window._rpTimer = setTimeout(tick, 800);
 }
 
-/* ---- 音质升级（有损清单 + 洗版） ---- */
+/* ---- 音质升级（有损清单 + 升级） ---- */
 let QL_ITEMS = [];
 function qlFlash(msg, kind='info'){
   const el = $('qlFlash'); if(!el) return;
@@ -1786,7 +1801,7 @@ async function loadQuality(verbose){
   }
   const box = $('qlBody'); if(!box) return;
   if(!QL_ITEMS.length){
-    box.innerHTML = `<div class="empty"><span class="e-ic">✓</span>全部是无损，不用洗版</div>`;
+    box.innerHTML = `<div class="empty"><span class="e-ic">✓</span>全部是无损，不用升级</div>`;
     return;
   }
   box.innerHTML = `
@@ -1819,28 +1834,28 @@ async function doQualityUpgrade(ids){
   const tlabel = ({hires:'Hi-Res', lossless:'无损', exhigh:'极高 320k',
                    higher:'较高 192k', standard:'标准 128k'})[target] || target;
   const n = ids ? ids.length : QL_ITEMS.length;
-  if(!n){ toast('没有需要洗版的曲目'); return; }
+  if(!n){ toast('没有需要升级的曲目'); return; }
   if(!await askConfirm(ids ? `把这首升到 ${tlabel}？` : `把全部 ${n} 首升到 ${tlabel}？`,
     `按 <b>${tlabel}</b> 重新下载，<b>只有比现在更好的才会替换</b>（已经是这个档位的会跳过）；<br>
      旧文件按删除策略处理（默认进回收目录，可找回）。<br>
      <span style="color:var(--muted)">下载量大时耗时较长，可以离开这个页面。</span>`,
-    {okText:'开始洗版'})) return;
+    {okText:'开始升级'})) return;
   try{
     await api('/api/quality/upgrade', {method:'POST',
       body: JSON.stringify(ids ? {ids, quality: target} : {quality: target})});
   }catch(e){ qlFlash('启动失败：' + e.message, 'bad'); return; }
-  qlFlash('正在洗版…', 'busy');
+  qlFlash('正在升级…', 'busy');
   const started = Date.now();
   const timer = setInterval(async () => {
     let s;
     try{ s = await api('/api/quality/status'); }catch(e){ return; }
     if(s.running){
-      qlProgress(s.progress, '洗版中');
+      qlProgress(s.progress, '升级中');
       if(Date.now() - started > 3 * 3600 * 1000) clearInterval(timer);
       return;
     }
     clearInterval(timer); qlProgress(null);
-    if(s.error){ qlFlash('洗版失败：' + s.error, 'bad'); return; }
+    if(s.error){ qlFlash('升级失败：' + s.error, 'bad'); return; }
     const r = s.result || {};
     const box = $('qlResult');
     if(box) box.innerHTML = `<div class="note">上次升级结果（${new Date().toLocaleTimeString()}）：
@@ -2033,7 +2048,11 @@ async function footTick(){
   try{
     const d = await api('/api/status');
     $('footDot').className = 'dot ' + (d.syncing ? 'ok' : (d.stats.actions_failed ? 'bad' : 'ok'));
-    $('footText').textContent = d.syncing ? '同步中…' : (d.dry_run ? '试运行 · 空闲' : '实盘 · 空闲');
+    $('footText').textContent = d.syncing ? '同步中…'
+      : (d.dry_run ? '试运行 · 空闲（只看不做）' : '正式运行 · 空闲（会真的下载/删除）');
+    $('footText').title = d.dry_run
+      ? '试运行：只记录"将要做什么"，不下载、不删除、不回推收藏'
+      : '正式运行：会真实下载文件，并按删除策略清理本地文件';
   }catch(e){ $('footDot').className='dot'; $('footText').textContent='未连接'; }
 }
 footTick(); setInterval(footTick, 6000);
