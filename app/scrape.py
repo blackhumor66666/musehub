@@ -173,7 +173,8 @@ def run(ctx: Any, ids: Iterable[int] | None = None, fields: Iterable[str] = FIEL
     org = Organizer(ctx.cfg.organizer)
     stats: dict = {"scanned": 0, "updated": 0, "no_source": 0, "no_id": 0,
                    "skipped": 0, "failed": 0, "files_written": 0,
-                   "by_field": {f: 0 for f in want}, "samples": []}
+                   "by_field": {f: 0 for f in want}, "samples": [],
+                   "unfilled_ids": []}
 
     # ---- 阶段 1: 先筛出真正需要补的曲目(纯查库, 很快) ----
     tasks: list[tuple[dict, list[str], Any]] = []
@@ -205,6 +206,7 @@ def run(ctx: Any, ids: Iterable[int] | None = None, fields: Iterable[str] = FIEL
         detail = details.get(int(r["id"]))
         if detail is None:
             stats["no_source"] += 1
+            stats["unfilled_ids"].append(int(r["id"]))
             continue
 
         patch: dict[str, Any] = {}
@@ -214,6 +216,7 @@ def run(ctx: Any, ids: Iterable[int] | None = None, fields: Iterable[str] = FIEL
                 patch[f] = v
         if not patch:
             stats["no_source"] += 1
+            stats["unfilled_ids"].append(int(r["id"]))
             continue
 
         for f in patch:

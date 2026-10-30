@@ -876,6 +876,10 @@ class SyncEngine:
         artist_n = self._norm(track.artists[0] if track.artists else "")
         if not title_n or not artist_n:
             return None
+        # 翻唱/现场/伴奏/remix 一律不要 —— 那是另一首歌, 不是"同曲的另一平台版本"
+        BAD = ("翻唱", "cover", "live", "现场", "演唱会", "伴奏", "纯音乐", "instrumental",
+               "remix", "dj", "片段", "抖音", "女声版", "男声版", "钢琴版", "吉他版",
+               "加速版", "慢速版", "合唱版", "ai ")
         queries = [f"{track.artists[0] if track.artists else ''} {track.title}".strip(),
                    track.title]
         seen: set[str] = {row["provider"]}
@@ -895,9 +899,13 @@ class SyncEngine:
             for t in hits:
                 if self._norm(t.title) != title_n:
                     continue
+                raw_title = (t.title or "").lower()
+                if any(b in raw_title for b in BAD):
+                    continue
+                # 只认原唱: 艺人必须完全一致(多艺人里有一个对上即可), 不做模糊包含,
+                # 否则 "张惠妹" 会匹配到 "张惠妹模仿者" 这类翻唱号
                 arts = [self._norm(a) for a in (t.artist_str or "").replace("；", ";").split(";")]
-                if not any(a and (a == artist_n or artist_n in a or a in artist_n)
-                           for a in arts):
+                if artist_n not in arts:
                     continue
                 if track.duration and t.duration and \
                         abs(int(t.duration) - int(track.duration)) > 10:
@@ -1262,9 +1270,12 @@ class SyncEngine:
                       year, track_no, duration, cover, quality, path, size, ext
                FROM tracks WHERE status='active' AND path<>'' AND remote_id<>''
                ORDER BY id""")]
+        ign = self.db.ignored_ids().get("quality", set())
         out: list[dict] = []
         seen_paths: set[str] = set()
         for r in rows:
+            if r["id"] in ign:
+                continue
             if not is_lossy(r["quality"]):
                 continue
             if r["provider"] not in self.providers:

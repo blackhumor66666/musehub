@@ -224,6 +224,16 @@ class Navidrome:
         return str(songs[0]["id"]) if songs and songs[0].get("id") else None
 
     # ---------- 歌单 ----------
+    def create_user(self, username: str, password: str, is_admin: bool = False) -> dict:
+        """在 Navidrome 里创建用户(需要 admin). 已存在会抛 NavidromeError."""
+        self._login()
+        try:
+            return self._nd("POST", "/api/user", json={
+                "userName": username, "name": username,
+                "password": password, "isAdmin": bool(is_admin)}) or {}
+        except Exception as exc:  # noqa: BLE001
+            raise NavidromeError(f"创建用户失败: {str(exc)[:120]}") from exc
+
     def list_users(self) -> list[str]:
         """列出 Navidrome 用户(需要 admin 权限). 拿不到就返回空."""
         try:

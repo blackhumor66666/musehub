@@ -1294,9 +1294,15 @@ async function showNdAccounts(){
     </div>`;
   openModal('播放器账号', `
     <div style="font-size:12.5px;line-height:1.8;color:var(--ink-2);margin-bottom:10px">
-      Navidrome 的私有歌单<b>只有创建者能看见</b>。在这里添加你在 Navidrome 里建的其他账号，
-      然后在歌单列表里把歌单分配到对应账号，就能实现"不同用户看不同歌单"。<br>
+      Navidrome 的私有歌单<b>只有创建者能看见</b>。分配账号 = 决定谁能看到这个歌单。<br>
+      可以直接在下面<b>新建账号</b>（会用默认账号的 admin 权限去 Navidrome 里创建），
+      也可以在 Navidrome 后台建好后在这里填写。<br>
       默认账号：<b>${esc(d.default || '未配置')}</b>（所有未指定账号的歌单都归它）
+    </div>
+    <div style="display:flex;gap:8px;margin:6px 0 14px;padding:10px;background:var(--paper-3);border:1px solid var(--rule)">
+      <input id="newAcctUser" placeholder="新账号用户名" style="flex:1">
+      <input id="newAcctPass" type="password" placeholder="密码" style="flex:1">
+      <button id="newAcctBtn" class="primary">在 Navidrome 里创建</button>
     </div>
     <div id="acctRows">
       ${(d.accounts||[]).map(a=>rowHtml(a.username,'',false)).join('')}
@@ -1306,6 +1312,18 @@ async function showNdAccounts(){
       <button id="acctCancel">取消</button><button id="acctSave" class="primary">保存并验证</button>
     </div>`);
   const rows = $('acctRows');
+  $('newAcctBtn').onclick = async () => {
+    const u = $('newAcctUser').value.trim(), pwd = $('newAcctPass').value;
+    if(!u || !pwd){ toast('用户名和密码都要填'); return; }
+    const btn = $('newAcctBtn'); btn.disabled = true; btn.textContent = '创建中…';
+    try{
+      const r = await api('/api/ndaccounts/create', {method:'POST',
+        body: JSON.stringify({username: u, password: pwd})});
+      toast(r.verified ? `已创建 ${u} 并验证登录成功` : `已创建 ${u}，但登录验证失败: ${r.message}`);
+      showNdAccounts();
+    }catch(e){ toast('创建失败: ' + e.message); }
+    finally{ btn.disabled = false; btn.textContent = '在 Navidrome 里创建'; }
+  };
   const bindDel = () => rows.querySelectorAll('.acct-del').forEach(b => b.onclick = () => b.closest('.acct-row').remove());
   bindDel();
   $('acctAdd').onclick = () => { rows.insertAdjacentHTML('beforeend', rowHtml('','',true)); bindDel(); };
@@ -1435,6 +1453,7 @@ PAGES.repair = { title:'库体检', sub:'元数据、封面、歌词一次检测
         </div>
       </details>
       <div class="flash" id="rpFlash"></div>
+      <div id="rpResult"></div>
       <div id="rpProg" style="display:none;margin:14px 0 6px">
         <div class="bar"><i id="rpBar" style="width:0%"></i></div>
         <div class="muted mono" id="rpProgText" style="font-size:11.5px;margin-top:7px">准备中…</div>
@@ -1463,6 +1482,7 @@ PAGES.repair = { title:'库体检', sub:'元数据、封面、歌词一次检测
         </div>
       </div>
       <div class="flash" id="qlFlash"></div>
+      <div id="qlResult"></div>
       <div id="qlProg" style="display:none;margin:14px 0 6px">
         <div class="bar"><i id="qlBar" style="width:0%"></i></div>
         <div class="muted mono" id="qlProgText" style="font-size:11.5px;margin-top:7px">准备中…</div>
@@ -1663,6 +1683,24 @@ async function doRepairFixAll(){
   }catch(e){ rpFlash('封面/歌词任务启动失败：' + e.message, 'bad'); return; }
   const last = await waitJob('/api/repair/status', '封面/歌词', () => {});
   const res = (last && (last.result || last.last_fix)) || {};
+  const sc = await api('/api/scrape/status').catch(() => null);
+  const run = (sc && (sc.result || sc.last_run)) || {};
+  const unfilled = run.unfilled_ids || [];
+  const box = $('rpResult');
+  if(box) box.innerHTML = `<div class="note">上次补全结果：
+    元数据更新 <b>${run.updated || 0}</b> 首 · 封面 +${res.fixed_cover || 0} · 歌词 +${res.fixed_lyric || 0}
+    ${unfilled.length ? ` · <b>${unfilled.length}</b> 首平台确实没有可补数据
+      <button class="sm ghost" id="rpIgnoreUnfilled" style="margin-left:8px">忽略这 ${unfilled.length} 首</button>` : ''}
+    </div>`;
+  if(unfilled.length && $('rpIgnoreUnfilled')){
+    $('rpIgnoreUnfilled').onclick = async () => {
+      await api('/api/repair/ignore', {method:'POST',
+        body: JSON.stringify({ids: unfilled, kinds: ['meta']})});
+      toast(`已忽略 ${unfilled.length} 首，之后检测不再算缺失`);
+      $('rpResult').innerHTML = '';
+      await refreshRepair(false);
+    };
+  }
   rpFlash(`完成：封面 +${res.fixed_cover || 0} · 歌词 +${res.fixed_lyric || 0}`
     + (res.no_source ? ` · 无源 ${res.no_source}` : '')
     + (res.failed ? ` · 失败 ${res.failed}` : ''), 'ok');
@@ -1758,11 +1796,18 @@ async function loadQuality(verbose){
         <span style="flex:1 1 220px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
           <b>${esc(t.title)}</b> <span class="muted">— ${esc(t.artists)}</span></span>
         <span class="muted mono" style="font-size:11px">${esc(t.ext || '')}</span>
+        <button class="sm ghost" data-qign="${t.id}">忽略</button>
         <button class="sm ghost" data-up="${t.id}">升级</button>
       </div>`).join('')}
     </div>`;
   box.querySelectorAll('[data-up]').forEach(btn => btn.onclick = () =>
     doQualityUpgrade([Number(btn.dataset.up)]));
+  box.querySelectorAll('[data-qign]').forEach(btn => btn.onclick = async () => {
+    await api('/api/quality/ignore', {method:'POST',
+      body: JSON.stringify({ids: [Number(btn.dataset.qign)]})});
+    const row = btn.closest('[data-q]'); if(row) row.remove();
+    toast('已忽略，不再算作需要升级');
+  });
 }
 async function doQualityUpgrade(ids){
   const target = ($('qlTarget') && $('qlTarget').value) || 'lossless';
@@ -1792,6 +1837,14 @@ async function doQualityUpgrade(ids){
     clearInterval(timer); qlProgress(null);
     if(s.error){ qlFlash('洗版失败：' + s.error, 'bad'); return; }
     const r = s.result || {};
+    const box = $('qlResult');
+    if(box) box.innerHTML = `<div class="note">上次升级结果（${new Date().toLocaleTimeString()}）：
+      升级 <b>${r.upgraded || 0}</b> 首
+      ${r.skipped ? ` · 已是目标档位 ${r.skipped}` : ''}
+      ${r.no_source ? ` · 平台没有更高音质 ${r.no_source}` : ''}
+      ${r.failed ? ` · 失败 ${r.failed}` : ''}
+      ${(r.errors && r.errors.length) ? `<br><span class="muted">${r.errors.slice(0,5).map(esc).join('<br>')}</span>` : ''}
+      </div>`;
     qlFlash(`完成：升级 ${r.upgraded || 0} 首`
       + (r.skipped ? ` · 已是最佳 ${r.skipped}` : '')
       + (r.no_source ? ` · 无源 ${r.no_source}` : '')

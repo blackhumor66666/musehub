@@ -285,6 +285,38 @@ def create_app(ctx: Context) -> FastAPI:
             results.append({"username": it["username"], "ok": ok, "message": msg})
         return JSONResponse({"ok": True, "results": results})
 
+    @app.post("/api/ndaccounts/create")
+    async def create_ndaccount(request: Request, _: None = Depends(auth)) -> JSONResponse:
+        """直接在 MuseHub 里创建 Navidrome 用户(用 admin 权限), 建完自动登记."""
+        body = await request.json()
+        username = str(body.get("username") or "").strip()
+        password = str(body.get("password") or "")
+        if not username or not password:
+            raise HTTPException(400, "用户名和密码都要填")
+        if not ctx.navidrome.available():
+            raise HTTPException(400, "还没配置 Navidrome 地址")
+        try:
+            ctx.navidrome.create_user(username, password)
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(400, str(exc)[:200])
+        # 登记到账号列表并验证能登录
+        raw = ctx.db.kv_get("navidrome_accounts", "") or "[]"
+        try:
+            items = json.loads(raw)
+        except ValueError:
+            items = []
+        if not any(i.get("username") == username for i in items):
+            items.append({"username": username, "password": password})
+            ctx.db.kv_set("navidrome_accounts", json.dumps(items, ensure_ascii=False))
+        ctx.refresh_nd_accounts()
+        ok, msg = True, ""
+        try:
+            ctx.navidrome.for_account(username, password)._login(force=True)
+        except Exception as exc:  # noqa: BLE001
+            ok, msg = False, str(exc)[:120]
+        return JSONResponse({"ok": True, "username": username, "verified": ok,
+                             "message": msg})
+
     @app.post("/api/playlists/{row_id}/mirror-account")
     async def set_mirror_account(row_id: int, request: Request,
                                  _: None = Depends(auth)) -> JSONResponse:
@@ -649,7 +681,7 @@ def create_app(ctx: Context) -> FastAPI:
         for r in rows:
             by[r["quality"]] = by.get(r["quality"], 0) + 1
         return JSONResponse({
-            "total": len(rows),
+            "total": len(rows), "ignored": len(ctx.db.ignored_ids().get("quality", set())),
             "by_quality": [{"quality": q, "label": qlabel(q), "count": n}
                            for q, n in sorted(by.items(), key=lambda x: -x[1])],
             "items": [{"id": r["id"], "title": r["title"], "artists": r["artists"],
@@ -657,6 +689,21 @@ def create_app(ctx: Context) -> FastAPI:
                        "quality": r["quality"], "quality_label": qlabel(r["quality"]),
                        "ext": r["ext"], "path": r["path"]} for r in rows],
         })
+
+    @app.post("/api/quality/ignore")
+    async def quality_ignore(request: Request, _: None = Depends(auth)) -> JSONResponse:
+        body = await request.json()
+        ids = [int(i) for i in (body.get("ids") or [])]
+        if not ids:
+            raise HTTPException(400, "缺少 ids")
+        ctx.db.ignore_items("quality", ids)
+        return JSONResponse({"ok": True,
+                             "ignored": len(ctx.db.ignored_ids().get("quality", set()))})
+
+    @app.post("/api/quality/unignore")
+    def quality_unignore(_: None = Depends(auth)) -> JSONResponse:
+        ctx.db.clear_ignored("quality")
+        return JSONResponse({"ok": True})
 
     @app.get("/api/quality/status")
     def quality_status(_: None = Depends(auth)) -> JSONResponse:
