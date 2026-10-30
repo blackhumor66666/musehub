@@ -864,8 +864,11 @@ class SyncEngine:
     def _fallback_fetch(self, row: dict, track) -> tuple | None:
         """本平台无音源时, 用其他平台搜索同曲并下载.
 
-        匹配很严: 歌名、主艺人完全一致(规范化后) 且 时长±5s —— 防止拿到
-        翻唱/Live/remix。多账号平台只试第一账号的搜索。
+        匹配规则(宁缺毋滥, 但别太严——实测"张惠妹 连名带姓"在网易云前几条
+        全是翻唱, 卡的太死会永远匹配不上):
+          - 歌名规范化后完全一致(去掉 Live/Remix 等后缀差异不算命中)
+          - 至少有一个艺人规范化后与目标艺人相等或互相包含
+          - 时长差 <= 10 秒(缺时长信息则跳过该条件)
         """
         if not self.cfg.sync.fallback_platform:
             return None
@@ -873,30 +876,42 @@ class SyncEngine:
         artist_n = self._norm(track.artists[0] if track.artists else "")
         if not title_n or not artist_n:
             return None
+        queries = [f"{track.artists[0] if track.artists else ''} {track.title}".strip(),
+                   track.title]
         seen: set[str] = {row["provider"]}
         for name, provider in self.providers.items():
             platform = name.split(":")[0]
             if platform in seen:
                 continue
             seen.add(platform)
-            try:
-                hits = provider.search(
-                    f"{track.artists[0] if track.artists else ''} {track.title}".strip(),
-                    limit=5)
-            except Exception:  # noqa: BLE001 - 搜索失败不影响其他平台
-                continue
+            hits = []
+            for q in queries:
+                try:
+                    hits = provider.search(q, limit=20)
+                except Exception:  # noqa: BLE001 - 搜索失败不影响其他平台
+                    hits = []
+                if hits:
+                    break
             for t in hits:
                 if self._norm(t.title) != title_n:
                     continue
-                if self._norm((t.artist_str or "").split(";")[0]) != artist_n:
+                arts = [self._norm(a) for a in (t.artist_str or "").replace("；", ";").split(";")]
+                if not any(a and (a == artist_n or artist_n in a or a in artist_n)
+                           for a in arts):
                     continue
                 if track.duration and t.duration and \
-                        abs(int(t.duration) - int(track.duration)) > 5:
+                        abs(int(t.duration) - int(track.duration)) > 10:
                     continue
                 try:
-                    return self.downloader.fetch(name, t)
+                    got = self.downloader.fetch(name, t)
                 except DownloadError:
                     continue
+                self.db.log("info", row["provider"],
+                            f"跨平台回退: {t.title} 在 {platform} 找到同曲并下载",
+                            path=getattr(got[0], "name", ""))
+                return got
+            self.db.log("info", "fallback",
+                        f"{track.title}: {platform} 未找到可用的同曲版本(试了 {len(hits)} 条)")
         return None
 
     def _find_dedup_target(self, row: dict) -> dict | None:
@@ -1247,16 +1262,29 @@ class SyncEngine:
                       year, track_no, duration, cover, quality, path, size, ext
                FROM tracks WHERE status='active' AND path<>'' AND remote_id<>''
                ORDER BY id""")]
-        out = [r for r in rows if is_lossy(r["quality"])]
+        out: list[dict] = []
+        seen_paths: set[str] = set()
+        for r in rows:
+            if not is_lossy(r["quality"]):
+                continue
+            if r["provider"] not in self.providers:
+                continue        # 本地文件没有平台 ID, 重新下载不了
+            if r["path"] in seen_paths:      # 同一文件被多平台记录共用, 只列一次
+                continue
+            seen_paths.add(r["path"])
+            out.append(r)
         from .quality import rank
         out.sort(key=lambda r: (rank(r["quality"]), r["artists"], r["title"]))
         return out
 
     # 洗版目标音质 -> 允许的音质链(从高到低). 用户明确选 320k 就不要给他下无损。
+    # 目标档位 -> 允许的音质链(高到低)。档位沿用平台叫法:
+    #   标准 128k / 较高 192k / 极高 320k / 无损 / Hi-Res
     UPGRADE_CHAIN = {
+        "hires": ("hires", "lossless", "exhigh", "higher", "standard"),
         "lossless": ("lossless", "exhigh", "higher", "standard"),
         "exhigh": ("exhigh", "higher", "standard"),
-        "m800": ("m800", "m500"),
+        "higher": ("higher", "standard"),
         "standard": ("standard",),
     }
 

@@ -102,7 +102,7 @@ class TestSyncFlow(BaseCase):
         # 目标就定 320k: 已经是 320k 了, 不该再动文件
         self.ne.cfg = self.cfg.netease
         before = self.db.find_track("netease", "101")
-        stats = self.engine.upgrade_quality(target="m800")
+        stats = self.engine.upgrade_quality(target="exhigh")
         self.assertEqual(stats["upgraded"], 0, stats)
         self.assertGreaterEqual(stats["skipped"], 1, stats)
         after = self.db.find_track("netease", "101")

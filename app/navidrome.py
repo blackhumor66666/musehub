@@ -224,6 +224,17 @@ class Navidrome:
         return str(songs[0]["id"]) if songs and songs[0].get("id") else None
 
     # ---------- 歌单 ----------
+    def list_users(self) -> list[str]:
+        """列出 Navidrome 用户(需要 admin 权限). 拿不到就返回空."""
+        try:
+            self._login()
+            r = self._nd("GET", "/api/user", params={"all": "true"})
+            if isinstance(r, list):
+                return [str(u.get("userName") or u.get("username") or "") for u in r]
+        except Exception:  # noqa: BLE001 - 尽力而为, 失败不影响主流程
+            pass
+        return []
+
     def for_account(self, username: str, password: str) -> "Navidrome":
         """以另一个 Navidrome 账号身份操作(多用户隔离用).
 

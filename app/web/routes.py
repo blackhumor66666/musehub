@@ -266,7 +266,8 @@ def create_app(ctx: Context) -> FastAPI:
                 items.append({"username": u, "password": p})
         ctx.db.kv_set("navidrome_accounts", json.dumps(items, ensure_ascii=False))
         ctx.refresh_nd_accounts()
-        # 顺便验证每个账号能不能登录
+        # 顺便验证每个账号能不能登录; 401 时区分"没这个用户"和"密码不对"
+        known = set(ctx.navidrome.list_users()) if ctx.navidrome.available() else set()
         results = []
         for it in items:
             ok, msg = True, ""
@@ -275,6 +276,12 @@ def create_app(ctx: Context) -> FastAPI:
                 client._login(force=True)
             except Exception as exc:  # noqa: BLE001
                 ok, msg = False, str(exc)[:100]
+                if "401" in msg:
+                    if known and it["username"] not in known:
+                        msg = (f"Navidrome 里没有用户 {it['username']}，"
+                               f"请先在 Navidrome 后台 → 用户 → 新建用户")
+                    else:
+                        msg = "用户名或密码不对（Navidrome 返回 401），请核对密码"
             results.append({"username": it["username"], "ok": ok, "message": msg})
         return JSONResponse({"ok": True, "results": results})
 
@@ -646,6 +653,7 @@ def create_app(ctx: Context) -> FastAPI:
             "by_quality": [{"quality": q, "label": qlabel(q), "count": n}
                            for q, n in sorted(by.items(), key=lambda x: -x[1])],
             "items": [{"id": r["id"], "title": r["title"], "artists": r["artists"],
+                       "provider": r["provider"],
                        "quality": r["quality"], "quality_label": qlabel(r["quality"]),
                        "ext": r["ext"], "path": r["path"]} for r in rows],
         })
