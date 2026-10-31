@@ -295,10 +295,23 @@ def create_app(ctx: Context) -> FastAPI:
             raise HTTPException(400, "用户名和密码都要填")
         if not ctx.navidrome.available():
             raise HTTPException(400, "还没配置 Navidrome 地址")
+        created = True
         try:
             ctx.navidrome.create_user(username, password)
         except Exception as exc:  # noqa: BLE001
-            raise HTTPException(400, str(exc)[:200])
+            msg = str(exc)
+            # 用户名已存在(Navidrome 返回 ra.validation.unique) -> 当作"绑定已有用户":
+            # 只要密码对, 直接登记即可, 不用让用户先去后台删号重建
+            if "unique" in msg or "400" in msg:
+                try:
+                    ctx.navidrome.for_account(username, password)._login(force=True)
+                except Exception:  # noqa: BLE001
+                    raise HTTPException(
+                        400, f"用户 {username} 已存在于 Navidrome，但密码不对。"
+                             f"请填对该用户的密码；想换密码请去 Navidrome 后台改。")
+                created = False
+            else:
+                raise HTTPException(400, msg[:200])
         # 登记到账号列表并验证能登录
         raw = ctx.db.kv_get("navidrome_accounts", "") or "[]"
         try:
@@ -315,7 +328,7 @@ def create_app(ctx: Context) -> FastAPI:
         except Exception as exc:  # noqa: BLE001
             ok, msg = False, str(exc)[:120]
         return JSONResponse({"ok": True, "username": username, "verified": ok,
-                             "message": msg})
+                             "created": created, "message": msg})
 
     @app.post("/api/playlists/{row_id}/mirror-account")
     async def set_mirror_account(row_id: int, request: Request,

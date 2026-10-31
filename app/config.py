@@ -97,7 +97,7 @@ class SyncConfig:
     # managed_only: 只删本程序下载的文件 (默认, 最安全)
     # mirror: 严格跟随平台歌单 (仍不会删除非本程序下载的文件)
     delete_policy: str = "managed_only"
-    dry_run: bool = True           # 首次运行默认只报告不执行
+    dry_run: bool = False          # 自用系统, 默认直接执行; 需要演练时临时开
     download_concurrency: int = 2
     max_downloads_per_cycle: int = 50
     push_unfavorite: bool = True   # 本地文件被删 -> 取消平台收藏
@@ -232,7 +232,7 @@ class Config:
         sync = SyncConfig(
             interval_minutes=_env_int("SYNC_INTERVAL_MINUTES", 60),
             delete_policy=_env("DELETE_POLICY", "managed_only"),
-            dry_run=_env_bool("DRY_RUN", True),
+            dry_run=_env_bool("DRY_RUN", False),
             download_concurrency=max(1, _env_int("DOWNLOAD_CONCURRENCY", 2)),
             max_downloads_per_cycle=max(1, _env_int("MAX_DOWNLOADS_PER_CYCLE", 300)),
             push_unfavorite=_env_bool("PUSH_UNFAVORITE", True),
@@ -289,5 +289,5 @@ class Config:
             else "未配置, 到 设置→播放器 填写"
         )
         rep["telegram"] = "ok" if self.telegram.token else "未配置, 到 设置→Telegram 填写"
-        rep["mode"] = "DRY-RUN 只观察不执行" if self.sync.dry_run else f"实盘 / 删除策略={self.sync.delete_policy}"
+        rep["mode"] = f"删除策略={self.sync.delete_policy}"
         return rep

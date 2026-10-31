@@ -161,7 +161,7 @@ svg.i{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.7;
 .grid{display:grid;gap:14px;margin-bottom:14px}
 .g4{grid-template-columns:repeat(4,1fr)}
 .g3{grid-template-columns:repeat(3,1fr)}
-.g2{grid-template-columns:1.3fr 1fr}
+.g2{grid-template-columns:1fr 1fr}
 @media(max-width:1000px){
   .g4,.g3{grid-template-columns:repeat(2,1fr)} .g2{grid-template-columns:1fr}
   .sidebar{display:none} .main{padding:24px 18px 70px}
@@ -440,6 +440,15 @@ function fmtSize(b){ if(!b) return '–'; const u=['B','KB','MB','GB']; let i=0,
   while(n>=1024&&i<u.length-1){n/=1024;i++;} return n.toFixed(n>=100||!i?0:1)+' '+u[i]; }
 function fmtDur(s){ if(!s) return '–'; const m=Math.floor(s/60), ss=Math.round(s%60);
   return s>=3600?`${Math.floor(m/60)}h${m%60}m`:m?`${m}m${ss}s`:`${ss}s`; }
+/* 累计时长: 用中文, 避免 171h39m 这种看不懂的写法 */
+function fmtTotal(s){
+  if(!s) return '–';
+  const h=Math.floor(s/3600), m=Math.round((s%3600)/60);
+  if(h && m) return `${h} 小时 ${m} 分钟`;
+  if(h) return `${h} 小时`;
+  if(m) return `${m} 分钟`;
+  return `${Math.round(s)} 秒`;
+}
 function ago(ts){ if(!ts) return '–';
   const t=new Date(String(ts).replace(' ','T').replace(/(\+?\d{4})$/,'')); const d=(Date.now()-t.getTime())/1000;
   if(isNaN(d)) return ts;
@@ -510,7 +519,8 @@ $('loginBtn').onclick = async () => {
 $('loginPwd').addEventListener('keydown', e => { if(e.key==='Enter') $('loginBtn').click(); });
 
 /* ================= 图表(纯 SVG) ================= */
-function donut(data, num, sub){
+function donut(data, num, sub, opts){
+  const noLegend = !!(opts && opts.noLegend);
   const total = data.reduce((a,d)=>a+d.value,0);
   if(!total) return `<div class="empty"><span class="e-ic">◌</span>暂无数据</div>`;
   const R=62, C=2*Math.PI*R; let off=0;
@@ -524,7 +534,7 @@ function donut(data, num, sub){
   return `<svg class="donut" viewBox="0 0 180 180">${segs}
     <text x="90" y="88" text-anchor="middle" class="donut-num">${esc(num)}</text>
     <text x="90" y="106" text-anchor="middle" class="donut-sub">${esc(sub)}</text></svg>
-    <div class="legend">${data.map(d=>`<span><i style="background:${d.color}"></i>${esc(d.label)} ${d.value}</span>`).join('')}</div>`;
+    ${noLegend ? '' : `<div class="legend">${data.map(d=>`<span><i style="background:${d.color}"></i>${esc(d.label)} ${d.value}</span>`).join('')}</div>`}`;
 }
 function lineChart(labels, series){
   const W=600,H=190,P=30;
@@ -602,7 +612,6 @@ PAGES.dashboard = { title:'仪表盘', sub:'系统总览：曲库、同步与下
   const lib = d.library || {};
   const cnt = k => (st.find(x=>x.status===k)||{}).count || 0;
   const total = st.reduce((a,x)=>a+x.count,0);
-  const dry = d.checklist.dry_run;
 
   const ck = d.checklist;
   const cookies = d.cookie_health || {};
@@ -639,13 +648,10 @@ PAGES.dashboard = { title:'仪表盘', sub:'系统总览：曲库、同步与下
 
   $('page').innerHTML = `
     ${cookieBanner}
-    ${dry ? `<div class="card" style="border-color:#f0dcb4;background:#fdf9ef;margin-bottom:14px">
+    ${!steps.every(x=>x.ok) ? `<div class="card" style="border-color:#f0dcb4;background:#fdf9ef;margin-bottom:14px">
       <div class="check">${steps.map(s2=>`
         <div class="step"><b><span class="${s2.ok?'done':'todo'}">${s2.ok?'✔':'○'}</span>${esc(s2.t)}</b>
           <p>${esc(s2.d)}</p>${s2.a}</div>`).join('')}
-      <div class="step" style="flex:0 0 230px;background:#fdf7ec;border-color:#f0dcb4">
-        <b>🧪 试运行中</b><p>只观察不执行：不下载、不删除、不回推收藏。日志会给「将要做的事」清单。</p>
-        <a href="javascript:toggleDry()">切到正式运行 →</a></div>
     </div></div>` : ''}
 
     <div class="card" style="margin-bottom:16px">
@@ -660,7 +666,7 @@ PAGES.dashboard = { title:'仪表盘', sub:'系统总览：曲库、同步与下
     </div>
 
     <div class="grid g4">
-      ${[['媒体库曲目', lib.files ?? s.tracks_active, `${fmtSize(lib.total_bytes)} · ${fmtDur(lib.total_seconds)}`, 'db','var(--accent)','var(--accent-soft)'],
+      ${[['媒体库曲目', lib.files ?? s.tracks_active, `${fmtSize(lib.total_bytes)} · ${fmtTotal(lib.total_seconds)}`, 'db','var(--accent)','var(--accent-soft)'],
          ['订阅歌单', s.playlists, `待下载 ${cnt('pending')}`, 'list','var(--ink)','transparent'],
          ['今日下载', ds.ok_today, `失败 ${ds.fail_today}`, 'cloud','var(--ink)','transparent'],
          ['待回推动作', s.actions_pending, `${s.actions_failed} 个失败待处理`, 'refresh','var(--ink)','transparent']]
@@ -701,12 +707,23 @@ PAGES.dashboard = { title:'仪表盘', sub:'系统总览：曲库、同步与下
     <div class="grid g2">
       <div class="card">
         <div class="chd"><div><h2 class="ct">曲库文件</h2>
-          <div class="ct-sub">按真实文件统计：同一首歌被多个平台/歌单收藏只算一个文件；
-          待下载与失败数见「订阅歌单」卡片和「下载任务」页</div></div></div>
-        ${donut([
-          {label:'已入库', value:lib.files, color:'#17140f'},
-          {label:'本地缺失', value:lib.missing_files||0, color:'#f59e0b'},
-        ], String(lib.files), '个文件')}
+          <div class="ct-sub">同一首歌被多个平台/歌单收藏只算一个文件；待下载与失败见上面对应卡片</div></div></div>
+        <div style="display:flex;align-items:center;gap:22px;flex-wrap:wrap;margin-top:4px">
+          <div style="flex:0 0 auto">${donut([
+            {label:'已入库', value:lib.files, color:'#17140f'},
+            {label:'本地缺失', value:lib.missing_files||0, color:'#b23a1e'},
+          ], String(lib.files), '个文件', {noLegend:true})}</div>
+          <div style="flex:1 1 180px;display:flex;flex-direction:column;gap:9px;font-size:13px">
+            <div style="display:flex;align-items:center;gap:8px">
+              <i style="width:9px;height:9px;border-radius:50%;background:#17140f;flex:0 0 auto"></i>
+              已入库 <b class="num">${s2(lib.files)}</b> 个</div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <i style="width:9px;height:9px;border-radius:50%;background:#b23a1e;flex:0 0 auto"></i>
+              本地缺失 <b class="num">${s2(lib.missing_files||0)}</b> 个</div>
+            <div class="muted" style="font-size:12px;line-height:1.7">
+              占用 ${fmtSize(lib.total_bytes)}<br>累计 ${fmtTotal(lib.total_seconds)}</div>
+          </div>
+        </div>
       </div>
       <div class="card">
         <div class="chd"><div><h2 class="ct">近 7 天下载</h2><div class="ct-sub">成功 / 失败</div></div>
@@ -795,14 +812,6 @@ PAGES.dashboard = { title:'仪表盘', sub:'系统总览：曲库、同步与下
   };
 }};
 
-async function toggleDry(){
-  if(!await askConfirm('切换到正式运行？',
-    '切换后，会<b>真实下载文件</b>、并按删除策略清理本地文件。确定继续吗？',
-    {okText:'切换到正式运行', danger:true})) return;
-  await api('/api/mode', {method:'POST', body: JSON.stringify({dry_run:false})});
-  toast('已切换到正式运行'); render();
-}
-window.toggleDry = toggleDry;
 
 /* ================= 页面: 下载任务 ================= */
 PAGES.downloads = { title:'下载任务', sub:'实时队列、统计趋势与下载记录', async render(){
@@ -1339,7 +1348,9 @@ async function showNdAccounts(){
     try{
       const r = await api('/api/ndaccounts/create', {method:'POST',
         body: JSON.stringify({username: u, password: pwd})});
-      toast(r.verified ? `已创建 ${u} 并验证登录成功` : `已创建 ${u}，但登录验证失败: ${r.message}`);
+      toast(r.verified
+        ? (r.created ? `已创建 ${u} 并验证登录成功` : `${u} 已存在，已按现有账号绑定成功`)
+        : `已登记 ${u}，但登录验证失败: ${r.message}`);
       showNdAccounts();
     }catch(e){ toast('创建失败: ' + e.message); }
     finally{ btn.disabled = false; btn.textContent = '在 Navidrome 里创建'; }
@@ -1376,7 +1387,7 @@ PAGES.library = { title:'曲库统计', sub:'基于真实文件统计：同一�
     <div class="grid g4">
       ${[['曲库文件', d.files, '个音频文件', 'disc','var(--accent)','var(--accent-soft)'],
          ['总大小', fmtSize(d.total_bytes), '磁盘占用', 'db','var(--ink)','transparent'],
-         ['总时长', fmtDur(d.total_seconds), '累计时长', 'play','var(--ink)','transparent'],
+         ['总时长', fmtTotal(d.total_seconds), '累计时长', 'play','var(--ink)','transparent'],
          ['无损文件', d.lossless_files, `有损 ${d.lossy_files} 个`, 'cloud','var(--ink)','transparent']]
         .map(([k,v,h,ic,c,cs])=>`
       <div class="card stat" style="--c:${c};--c-soft:${cs}">
@@ -2048,11 +2059,7 @@ async function footTick(){
   try{
     const d = await api('/api/status');
     $('footDot').className = 'dot ' + (d.syncing ? 'ok' : (d.stats.actions_failed ? 'bad' : 'ok'));
-    $('footText').textContent = d.syncing ? '同步中…'
-      : (d.dry_run ? '试运行 · 空闲（只看不做）' : '正式运行 · 空闲（会真的下载/删除）');
-    $('footText').title = d.dry_run
-      ? '试运行：只记录"将要做什么"，不下载、不删除、不回推收藏'
-      : '正式运行：会真实下载文件，并按删除策略清理本地文件';
+    $('footText').textContent = d.syncing ? '同步中…' : '空闲';
   }catch(e){ $('footDot').className='dot'; $('footText').textContent='未连接'; }
 }
 footTick(); setInterval(footTick, 6000);

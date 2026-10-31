@@ -39,7 +39,7 @@ class TestSettings(unittest.TestCase):
         keys = {f["key"] for g in data["groups"] for f in g["fields"]}
         # 旧的单账号 Cookie 已合并进「多账号」, 不再下发到面板
         for k in ("netease.cookie", "qq.cookie", "navidrome.url", "telegram.token",
-                  "sync.dry_run", "sync.delete_policy", "organizer.album_template",
+                  "sync.delete_policy", "organizer.album_template",
                   "notify.enabled", "notify.webhook_url", "notify.quiet_hours"):
             self.assertIn(k, keys)
 

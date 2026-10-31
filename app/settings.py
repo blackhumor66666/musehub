@@ -191,7 +191,7 @@ Field("sync.interval_minutes", "sync", "全量同步周期(分钟)", "number", m
 Field("sync.reconcile_interval_minutes", "sync", "本地扫描周期(分钟)", "number", min=2, max=1440,
       help="多久扫一次本地库, 用于发现「你手动删了文件」")
 Field("sync.dry_run", "sync", "试运行模式", "bool",
-      "开 = 只记录「将会做什么」, 不下载、不删除、不回推。首次务必开着观察一轮。")
+      "开 = 只记录「将会做什么」, 不下载、不删除、不回推。", hidden=True)
 Field("sync.delete_policy", "sync", "删除策略", "select",
       "never 永不删 / managed_only 只删本程序下载的(推荐) / mirror 严格镜像歌单",
       options=[("never", "never 永不删除"), ("managed_only", "managed_only 只删自己下载的"),

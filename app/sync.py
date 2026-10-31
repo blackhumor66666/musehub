@@ -460,6 +460,11 @@ class SyncEngine:
                 stats["repointed"] += moved
                 ok, size = self._dispose_file(old_path)
                 if ok:
+                    # 兜底: 还有记录指向这个已被移走的文件, 一律标 deleted,
+                    # 否则它们会永远停在 missing(库里"缺失"却找不到原因)
+                    self.db.execute(
+                        "UPDATE tracks SET status='deleted', updated_at=? "
+                        "WHERE path=? AND status='active'", (now_iso(), old_path))
                     stats["removed_files"] += 1
                     stats["bytes_freed"] += size
                     self.db.log("info", "dedup",
